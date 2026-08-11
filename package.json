@@ -1,0 +1,29 @@
+{
+  "name": "final_project_computer_graphics",
+  "version": "1.0.0",
+  "description": "Repo for the final project for the computer graphics course 2025-26",
+  "main": "main.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FranzinLuca/Final_project_computer_graphics.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/FranzinLuca/Final_project_computer_graphics/issues"
+  },
+  "homepage": "https://github.com/FranzinLuca/Final_project_computer_graphics#readme",
+  "dependencies": {
+    "@tweenjs/tween.js": "^25.0.0",
+    "lil-gui": "^0.21.0",
+    "three": "^0.185.1"
+  }
+}

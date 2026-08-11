@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drum Rig — Interactive Graphics</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three/build/three.module.js",
+    "three/addons/": "./lib/three/addons/",
+    "@tweenjs/tween.js": "./lib/tween/tween.esm.js",
+    "lil-gui": "./lib/lil-gui/lil-gui.esm.js"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --bg:      #0B0C0D;
+    --panel:   #141618;
+    --rule:    #2A2D31;
+    --ink:     #E6E4DF;
+    --dim:     #7C8085;
+    --brass:   #C9A227;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  #scene {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(120% 90% at 50% 40%, #17191C 0%, var(--bg) 70%);
+    z-index: 10;
+    transition: opacity 420ms ease;
+  }
+  #overlay.is-hidden { opacity: 0; pointer-events: none; }
+
+  .panel {
+    position: relative;
+    width: min(440px, calc(100vw - 40px));
+    padding: 38px 34px 30px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    text-align: center;
+  }
+  /* rack-panel screw heads */
+  .panel::before, .panel::after {
+    content: "";
+    position: absolute;
+    top: 12px; bottom: 12px;
+    width: 6px;
+    background-image: radial-gradient(circle, var(--rule) 45%, transparent 46%);
+    background-size: 6px 6px;
+    background-repeat: no-repeat;
+    background-position: top center, bottom center;
+    background-position-y: 0, 100%;
+  }
+  .panel::before { left: 12px; }
+  .panel::after  { right: 12px; }
+
+  .legend {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .title {
+    margin: 14px 0 6px;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .subtitle {
+    margin: 0 0 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  .hairline {
+    height: 1px;
+    background: var(--rule);
+    margin: 0 0 26px;
+  }
+
+  #start {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--brass);
+    background: transparent;
+    border: 1px solid var(--brass);
+    border-radius: 2px;
+    padding: 14px 30px;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  #start:hover, #start:focus-visible {
+    background: var(--brass);
+    color: #0B0C0D;
+    outline: none;
+  }
+  #start:focus-visible { box-shadow: 0 0 0 3px rgba(201,162,39,0.28); }
+
+  .caption {
+    margin: 20px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+
+  /* Diagnostics readout */
+  #status {
+    position: fixed;
+    left: 14px;
+    bottom: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    pointer-events: none;
+    white-space: pre;
+    z-index: 5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #overlay { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+  <canvas id="scene"></canvas>
+
+  <div id="overlay">
+    <div class="panel">
+      <div class="legend">Interactive Graphics · Sapienza</div>
+      <h1 class="title">Drum Rig</h1>
+      <p class="subtitle">16-pad sequencer in a folding road case</p>
+      <div class="hairline"></div>
+      <button id="start" type="button">Power on</button>
+      <p class="caption">Audio starts on your first click — browsers block sound until then.</p>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
