@@ -17,13 +17,28 @@
 </script>
 
 <style>
+  /*
+    The overlay palette is the authored scene palette, matching src/palette.js.
+
+    It is worth being precise about "matching": these are the values the
+    backdrop is authored as, not the values it renders as. three draws the
+    background texture through the tone mapper and back out to sRGB, so the
+    rendered sweep lands a few percent darker than the hex below. The overlay
+    covers the whole viewport and cross-fades over 420 ms, so the two are never
+    on screen side by side and the difference is invisible — but the numbers
+    are not identical, and pretending otherwise would send someone hunting for
+    a bug that is not there.
+  */
   :root {
-    --bg:      #0B0C0D;
-    --panel:   #141618;
-    --rule:    #2A2D31;
-    --ink:     #E6E4DF;
-    --dim:     #7C8085;
-    --brass:   #C9A227;
+    --sky-top:    #a2aed0;
+    --sky-bottom: #59648a;
+
+    --shell:      #f6f1e7;
+    --shell-deep: #e4ddcd;
+    --ink:        #2f3348;
+    --dim:        #6d7288;
+    --coral:      #f47a58;
+    --coral-deep: #dc5f45;
 
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     --sans: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
@@ -34,7 +49,7 @@
   html, body {
     margin: 0;
     height: 100%;
-    background: var(--bg);
+    background: var(--sky-bottom);
     color: var(--ink);
     font-family: var(--sans);
     overflow: hidden;
@@ -52,109 +67,117 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background: radial-gradient(120% 90% at 50% 40%, #17191C 0%, var(--bg) 70%);
+    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%);
     z-index: 10;
     transition: opacity 420ms ease;
   }
   #overlay.is-hidden { opacity: 0; pointer-events: none; }
 
-  .panel {
-    position: relative;
-    width: min(440px, calc(100vw - 40px));
-    padding: 38px 34px 30px;
-    background: var(--panel);
-    border: 1px solid var(--rule);
-    border-radius: 2px;
+  .card {
+    width: min(430px, calc(100vw - 32px));
+    padding: 40px 36px 32px;
+    background: var(--shell);
+    /*
+      A 28px radius, not a 4px one. The card is the first thing anyone sees, so
+      it has to make the same promise the geometry does — nothing in this
+      project has a hard corner.
+    */
+    border-radius: 28px;
     text-align: center;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.7) inset,
+      0 18px 40px -12px rgba(28, 32, 52, 0.45),
+      0 2px 6px rgba(28, 32, 52, 0.16);
   }
-  /* rack-panel screw heads */
-  .panel::before, .panel::after {
-    content: "";
-    position: absolute;
-    top: 12px; bottom: 12px;
-    width: 6px;
-    background-image: radial-gradient(circle, var(--rule) 45%, transparent 46%);
-    background-size: 6px 6px;
-    background-repeat: no-repeat;
-    background-position: top center, bottom center;
-    background-position-y: 0, 100%;
-  }
-  .panel::before { left: 12px; }
-  .panel::after  { right: 12px; }
 
-  .legend {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--dim);
+  /* The pad palette, as five dots. Says "this is a colourful thing" before the
+     WebGL context has drawn a single triangle. */
+  .swatches {
+    display: flex;
+    justify-content: center;
+    gap: 7px;
+    margin-bottom: 22px;
   }
+  .swatches i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .swatches i:nth-child(1) { background: hsl(7,   60%, 58%); }
+  .swatches i:nth-child(2) { background: hsl(32,  60%, 58%); }
+  .swatches i:nth-child(3) { background: hsl(50,  60%, 58%); }
+  .swatches i:nth-child(4) { background: hsl(187, 60%, 58%); }
+  .swatches i:nth-child(5) { background: hsl(270, 60%, 58%); }
 
   .title {
-    margin: 14px 0 6px;
-    font-size: 30px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    margin: 0 0 8px;
+    font-size: 34px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
   }
 
   .subtitle {
-    margin: 0 0 28px;
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    color: var(--dim);
-  }
-
-  .hairline {
-    height: 1px;
-    background: var(--rule);
     margin: 0 0 26px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dim);
   }
 
   #start {
-    font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--brass);
-    background: transparent;
-    border: 1px solid var(--brass);
-    border-radius: 2px;
-    padding: 14px 30px;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #fff;
+    background: var(--coral);
+    border: none;
+    border-radius: 999px;
+    padding: 15px 38px;
     cursor: pointer;
-    transition: background 160ms ease, color 160ms ease;
+    box-shadow: 0 6px 16px -4px rgba(220, 95, 69, 0.6);
+    transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
   }
   #start:hover, #start:focus-visible {
-    background: var(--brass);
-    color: #0B0C0D;
+    background: var(--coral-deep);
+    transform: translateY(-1px);
     outline: none;
   }
-  #start:focus-visible { box-shadow: 0 0 0 3px rgba(201,162,39,0.28); }
+  #start:active { transform: translateY(1px); }
+  #start:focus-visible { box-shadow: 0 0 0 4px rgba(244, 122, 88, 0.35); }
 
   .caption {
-    margin: 20px 0 0;
-    font-size: 12px;
-    line-height: 1.5;
+    margin: 22px 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
     color: var(--dim);
+  }
+
+  .legend {
+    margin: 18px 0 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    opacity: 0.75;
   }
 
   /* Diagnostics readout */
   #status {
     position: fixed;
-    left: 14px;
-    bottom: 12px;
+    left: 16px;
+    bottom: 14px;
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.08em;
-    color: var(--dim);
+    color: rgba(255, 255, 255, 0.55);
     pointer-events: none;
     white-space: pre;
     z-index: 5;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    #overlay { transition: none; }
+    #overlay, #start { transition: none; }
   }
 </style>
 </head>
@@ -163,13 +186,13 @@
   <canvas id="scene"></canvas>
 
   <div id="overlay">
-    <div class="panel">
-      <div class="legend">Interactive Graphics · Sapienza</div>
+    <div class="card">
+      <div class="swatches"><i></i><i></i><i></i><i></i><i></i></div>
       <h1 class="title">Drum Rig</h1>
-      <p class="subtitle">16-pad sequencer in a folding road case</p>
-      <div class="hairline"></div>
+      <p class="subtitle">A 16-pad sequencer in a folding case.<br>Otto is on sticks.</p>
       <button id="start" type="button">Power on</button>
-      <p class="caption">Audio starts on your first click — browsers block sound until then.</p>
+      <p class="caption">Audio starts on your first click — browsers keep it muted until then.</p>
+      <p class="legend">Interactive Graphics · Sapienza</p>
     </div>
   </div>
 

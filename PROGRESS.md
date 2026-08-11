@@ -8,7 +8,9 @@ why, and what was rejected. It exists for two reasons: it is the raw material
 for the report (§7 of the project plan), and it is the preparation for the oral
 discussion. Every entry is numbered so the report can cite it.
 
-**Status:** phases 0–4 complete. Phase 5 (lighting) is next.
+**Status:** phases 0–4 complete, plus an art-direction pass (§14) that replaced
+the visual language of the whole project. Phase 5 (analyser-driven lighting) is
+next.
 
 ---
 
@@ -21,6 +23,7 @@ discussion. Every entry is numbered so the report can cite it.
 | 2 | Rig geometry, pad grid, knobs, procedural materials | Done |
 | 3 | Raycasting, keyboard map, knob dragging | Done |
 | 4 | Hierarchical unfold: constraint solver, staggered sequence | Done |
+| — | **Art direction pass**: rounded geometry, palette, environment, mascot | Done |
 | 5 | Analyser-driven lighting | Not started |
 | 6 | Booth environment, remaining material families | Not started |
 | 7 | Presets and camera | Not started |
@@ -43,7 +46,10 @@ index.html          boot gate, import map, canvas, diagnostics element
   tweens.js         the single shared tween.js Group
   audio.js          context, master bus, transport, scheduler, layers, recording
   pads.js           16 synthesis recipes
+  palette.js        the colour scheme, single source of truth
+  geometry.js       rounded box and rounded cylinder generators
   rig.js            geometry, materials, joint skeleton
+  mascot.js         Otto: second joint chain, idle and strike animation
   hierarchy.js      constraint solver + unfold/fold sequence
   textures.js       procedural map generation
   interaction.js    raycasting, keyboard, knob dragging
@@ -59,15 +65,21 @@ Not yet written: `lighting.js`, `presets.js`, `ui.js`.
 main.js ──> everything
 
 audio.js ──> events.js, pads.js
-rig.js  ──> events.js, pads.js, textures.js, three
+rig.js  ──> events.js, pads.js, palette.js, geometry.js, textures.js, three
+mascot.js ──> events.js, pads.js (PAD_INDEX only), palette.js,
+              geometry.js, textures.js, three
 hierarchy.js ──> events.js, tweens.js, rig.js (DIMS only), three, tween.js
 interaction.js ──> events.js, pads.js, three
-textures.js ──> three
+textures.js ──> palette.js, three
+geometry.js ──> three
+palette.js ──> three
 pads.js ──> (nothing)
 events.js ──> (nothing)
 ```
 
 `audio.js` and `rig.js` do not import each other, directly or transitively.
+Neither does `mascot.js` import either of them: it reacts to the same `pad:hit`
+event the rig does (D66).
 
 ---
 
@@ -611,17 +623,25 @@ Blur white noise hard along one axis (radius 14) and barely at all across it
 Rubber uses radius 1 in both directions for a tight isotropic stipple; wider
 starts to read as leather.
 
-### D47 — Material families so far
+### D47 — Material families
 
-| Family | Base colour | Normal | Roughness / metalness | Emissive |
+Retuned by the art-direction pass; see D63 for why the map contrast changed and
+D62 for why the metal count dropped from two families to one.
+
+| Family | Base colour | Normal | Rough / metal | Emissive |
 |---|---|---|---|---|
-| Chassis (brushed metal) | procedural streaks | directional grooves | 0.44 / 0.92 | — |
-| Shell (painted panel) | same maps, dark tint | same, half strength | 0.62 / 0.55 | — |
-| Pads (rubber) | stipple tint | fine stipple | 0.88 / 0.0 | LED plate |
-| Plastic (panel, knobs) | coarse grain | mild | 0.66 / 0.10 | — |
+| Shell, lid, wings (moulded) | wide-blur grain, near white | 0.35 strength | 0.58–0.64 / 0.0 | — |
+| Deck and panel (moulded) | same maps, lighter tint | 0.30 | 0.50–0.55 / 0.0 | — |
+| Pads (rubber) | fine stipple, near white | 0.45 | 0.72 / 0.0 | rim plate |
+| Mechanism (brushed metal) | anisotropic streaks | 0.50 | 0.36 / 0.62 | — |
+| Mascot (toon) | flat colour | — | — (ramp) | — |
 
-Floor and wall families are phase 6. Chassis and shell share maps with different
-tint and finish — costs nothing and ties the family together visually.
+All the moulded parts share one map set at different tints and finishes — it
+costs nothing and ties the family together visually. The mechanism is the only
+metal left, and it is the one part that would really be metal.
+
+Floor and wall families are phase 6; the ground is currently a single flat
+material dissolved into the backdrop by fog (D69).
 
 ### D48 — Per-pad LED material
 
@@ -730,13 +750,19 @@ repeat rate.
 
 | Requirement | How it is met | State |
 |---|---|---|
-| Hierarchical model, at least one complex | Folding road case: 5–6 levels, 3 branches, every level a real DOF (D33) | **Done** |
-| Animations exploiting that structure | Scissor coupling (D34), counter-rotation (D35), staggered sequence (D36), children carried by parents | **Done** |
-| Lights, at least one | Key with shadows, rim, hemisphere — placeholders | Interim; phase 5 |
-| Textures of different kinds | Colour, normal, roughness, emissive across 4 families (D47) | 4 of 6 families |
+| Hierarchical model, at least one complex | Folding road case: 5–6 levels, 3 branches, every level a real DOF (D33). **Plus** Otto, a second chain 8 levels deep (D66) | **Done** |
+| Animations exploiting that structure | Scissor coupling (D34), counter-rotation (D35), staggered sequence (D36), tentacle chains (D66), children carried by parents | **Done** |
+| Lights, at least one | Key with shadows, fill, rim, hemisphere, plus image-based from a procedural environment (D62) | Interim; phase 5 |
+| Textures of different kinds | Colour, normal, roughness, emissive, **toon gradient ramp** (D64), **drawn glyphs** (D68), **prefiltered environment** (D62) — 7 kinds, all procedural | **Done** |
 | User interaction | Pads by mouse and keyboard, 6 draggable knobs, transport, unfold toggle | Mostly done |
-| Most objects animated | Pads, LEDs, knobs, lid, wings, scissor, deck, panel | **Done** |
+| Most objects animated | Pads, rim glows, knobs, lid, wings, scissor, deck, panel, and every part of the mascot | **Done** |
 | Shadows (not required, worth marks) | Key light, 2048² map, tuned bias | Done |
+
+The texture row is worth a sentence in the report: the art-direction pass was
+expected to *cost* texture marks, since cartoon shading usually means throwing
+detail away. It ended up adding three kinds, because the toon ramp, the printed
+glyphs and the environment map are all textures doing jobs the original four
+were not.
 
 Still outstanding: analyser-driven lights, floor/wall material families, presets,
 camera presets, mute/solo UI, the document.
@@ -829,7 +855,271 @@ above 9 kHz. (D27)
 
 ---
 
-## 14. Next: phase 5
+## 14. The art-direction pass
+
+The rig worked and looked like a diagram of itself: charcoal shell, brushed
+aluminium, black floor, hard 90-degree edges everywhere. The brief for this
+pass was four words — colourful, cartoon, minimal, rounded — and the constraint
+was that none of the graded work could be thrown away to get there. Every
+decision below is either a change of visual language or something that had to
+be repaired because the language changed.
+
+### D59 — Rounded geometry is generated, not imported
+
+Every solid in the rig is now a rounded box or a lathed cylinder from
+`geometry.js`. A hard edge catches the light in one line of pixels; a fillet
+catches a band of it that slides as the camera moves, and that band is most of
+what people mean when they call a render "premium".
+
+`three/addons/geometries/RoundedBoxGeometry.js` exists and is deliberately not
+used. The project's claim in §2 is that every geometry in it is generated by
+project code, and vendoring an addon to round a box would have cost that claim
+for about forty lines of work.
+
+**The construction.** A rounded box is the Minkowski sum of a smaller box and a
+sphere of radius *r*: sweep the sphere over every point of the box. The
+resulting surface is exactly three kinds of patch and nothing else —
+
+| Patch | Count | Sphere centre sits on |
+|---|---|---|
+| flat face | 6 | a face of the inner box |
+| quarter cylinder | 12 | an edge of it |
+| spherical octant | 8 | a corner of it |
+
+so all three are built directly, which makes the shape exact at any
+resolution. Normals are analytic rather than averaged from triangles: on a
+fillet the outward normal *is* the unit vector from the inner box to the
+surface, so it is known exactly and costs nothing.
+
+*Rejected:* subdividing a `BoxGeometry` and pushing each vertex outward (the
+approach three's own addon takes). It spends nearly all its vertices in the
+middle of flat faces where they achieve nothing and puts one or two rings
+inside the fillet where they are the entire point. Getting three rings across
+the shell's 55 mm fillet that way needs roughly 80 subdivisions per axis; the
+patch construction needs `segments = 3`, which is 248 vertices for the whole
+case shell.
+
+**Winding, derived rather than tried.** Each patch has to be wound
+counter-clockwise seen from outside or it renders inside out. Differentiating
+the edge-fillet parameterisation gives
+
+```
+(∂/∂φ × ∂/∂k) · n = r · su · sv
+```
+
+so the natural parameter order faces outward only when the two corner signs
+agree; when they do not, the edge is traversed backwards. The same derivation
+on the corner octant gives `−sx·sy·sz·sinθ`, so the four octants whose signs
+multiply to +1 are traversed with ψ reversed. Two sign flips, both derived,
+instead of twenty hand-checked special cases.
+
+### D60 — The thin-plate case, found by testing rather than by looking
+
+When the fillet radius reaches half of an axis, the inner box goes flat along
+it and every patch that depends on that extent collapses to zero area. This is
+not an exotic edge case: it is the normal state of every thin part in the rig,
+because a plate wants its whole thickness rounded. The lid, both wings, the
+sixteen pad rims and the six knob indicators all land exactly on it.
+
+Emitting the collapsed patches anyway costs triangles that rasterise to nothing
+and leaves the mesh non-manifold, so each patch is skipped when the extent it
+needs has gone. What survives is still a closed surface — a fully rounded plate
+is its two flat faces plus the band around them.
+
+Worth recording *how* this was found. A numerical test builds each geometry and
+checks four things: no NaNs, unit normals, every triangle's geometric normal
+agreeing with its analytic vertex normals, and every directed edge appearing
+exactly once with its reverse appearing exactly once. That last check is a
+watertightness test, and it is what caught this — nothing was visibly wrong.
+The test also compares the enclosed volume, computed by the divergence theorem,
+against the closed form of the Minkowski sum:
+
+```
+V = pqs + 2r(pq + qs + sp) + πr²(p + q + s) + (4/3)πr³
+```
+
+At 24 segments the generator agrees to **0.005%**, which is a much stronger
+statement than "it looked round". At the shipping 3 segments it comes in 0.34%
+under, exactly as an inscribed polygon should.
+
+One false alarm is worth recording too: the watertightness check initially
+failed on thin plates because the two hemispheres' equator vertices land on
+`+0` and `−0` — the coordinates agree to eighteen significant figures and
+differ only in the sign bit of a zero. That was a bug in the test's string key,
+not in the geometry.
+
+### D61 — Neutral tone mapping instead of ACES
+
+ACES was chosen at D49 for its highlight roll-off. It is the wrong choice for
+this palette. ACES was designed for film and deliberately desaturates as values
+climb, so a bright saturated pad drifts towards white — correct for a
+photographed highlight, wrong for a flat cartoon surface that is supposed to
+stay the colour it was painted. Khronos PBR Neutral holds hue and saturation
+until it is genuinely forced to roll off.
+
+The cost is honest: it protects highlights less well. Nothing in the scene is a
+chrome sphere, so there is nothing to protect.
+
+### D62 — Metal needs something to reflect
+
+A metallic surface has no diffuse response whatsoever. All it can do is
+reflect, so with no environment map it reflects an empty scene and renders
+close to black — which is exactly why the original chassis at metalness 0.92
+read as flat dead grey no matter what colour it was given.
+
+Two changes. Most of the rig dropped to metalness 0, because moulded plastic is
+what it actually is. The mechanism kept its metal and got something to reflect:
+`studioEnvironmentTexture()` draws an equirectangular softbox rig — a large
+warm source high on one side, a cooler weaker one opposite, a bright band along
+the horizon, a darker floor — as three radial gradients on a canvas, with no
+binary asset and no licence.
+
+`PMREMGenerator` then prefilters it into the mip chain image-based lighting
+needs, each level the original convolved with a wider lobe. Without that
+prefilter roughness has nothing to select between, and **every roughness map in
+the project would be doing nothing**.
+
+### D63 — The colour maps are modulation, not colour
+
+Three multiplies `material.map` by `material.color`. The old maps ran from
+near-black to mid-grey, because that is what photographic brushed aluminium
+looks like — so the product could only ever be dark, and every saturated colour
+asked for came back muddy.
+
+The maps now span a narrow band just below white. The map supplies the *grain*
+and `material.color` supplies the hue. Everything else about the pipeline is
+unchanged: the same height field still drives colour, normal and roughness, so
+a pit is still simultaneously darker, tilted and duller (D45).
+
+The UVs changed with them. `geometry.js` unwraps with a box projection in
+**world units** rather than 0..1 per face, so texture density is equal across
+parts of wildly different size — a 30 mm knob and a 1.1 m shell get the same
+grain, which per-face UVs cannot do.
+
+### D64 — Two shading models, on purpose
+
+The rig is a manufactured object and keeps physically based shading. Otto is a
+drawn character and gets `MeshToonMaterial` with a banded gradient ramp.
+
+This is an art-direction choice, not an inconsistency: it is the same
+separation an animated film makes between its sets and its cast, and it is what
+stops the mascot reading as another moulded plastic part.
+
+It also adds a genuinely different *kind* of texture. `MeshToonMaterial` does
+not shade by `dot(N,L)` directly — it uses that value, remapped to 0..1, as the
+**texture coordinate** of a one-dimensional ramp, and whatever the ramp holds
+there becomes the light's contribution. The ramp is not a decoration on the
+lighting model; it is the lighting model's transfer function, expressed as a
+texture.
+
+Two details that matter: `NearestFilter` is what makes the steps steps (with
+`LinearFilter` the hardware interpolates on the way out and the bands dissolve
+back into the gradient they came from), and the levels are uneven — 0.45, 0.62,
+0.80, 1.0 — because evenly spaced bands put the largest jump in the middle of
+the lit side where the eye is looking.
+
+### D65 — Light intensities budgeted against the tone mapper
+
+Lambert diffuse out of three is `dotNL · intensity · albedo / π` per light,
+plus roughly `envColour · environmentIntensity · albedo` for the image-based
+term. The shell's albedo is 0.93 — it is nearly white — so the lit side sums to
+about 0.78, just under the 0.76 point where Neutral tone mapping starts to
+compress.
+
+Budgeting to that line rather than turning lights up until it looked bright is
+what keeps the shell reading as cream instead of bleaching to white, and the
+pads reading as colours instead of pastels. The first pass at these values
+summed to about 1.06 and would have clipped.
+
+The key is far brighter than the fill and rim on purpose: `MeshToonMaterial`
+bands each light independently and sums the results, so three comparable lights
+would give the mascot three overlapping sets of bands and no readable
+terminator.
+
+### D66 — The mascot is a second hierarchical model, driven by an existing event
+
+Otto is an octopus because the joke writes itself for a drum machine: eight
+arms, and he only ever uses two of them.
+
+He is not a prop. He is a second joint chain, eight levels deep, and every
+tentacle is `azimuth → curl → segment → joint → segment → joint → segment →
+tip → stick`. The azimuth group exists purely so no Euler order has to be
+reasoned about: spinning a tentacle around the body and bending it are two
+rotations about two different axes, and composing them in one Euler triple
+means depending on the order three multiplies them in. A group per axis makes
+the composition explicit and the bug impossible.
+
+**The part worth saying out loud in the oral:** a whole animated character was
+added to this project without editing `audio.js`, `interaction.js` or `rig.js`.
+`mascot.js` subscribes to `pad:hit` — the identical event `rig.js` uses to
+flash a pad — so Otto drums in time whether the hit came from a mouse, a key or
+the sequencer, and none of those code paths knows he exists. That is the third
+time the decoupling rule (D5) has paid for itself, and the cleanest
+demonstration of it so far.
+
+The strike envelope reuses D39's exponential decay rather than a tween, for the
+identical reason: retriggering is free, where a tween would have to be
+cancelled and restarted on every hit. `strike = 1` at the instant of the hit,
+so the arm is at the bottom of its swing exactly when the sound lands and
+rebounds afterwards — animating the approach instead would require knowing the
+hit in advance, which for a live hit is impossible.
+
+Squash and stretch conserves rough volume: what is lost in height is returned
+in width. Without the widening a squash just reads as the character shrinking.
+
+### D67 — One palette module
+
+`palette.js` imports nothing but three and is imported by the rig, the mascot,
+the textures and the scene. Nothing picks a colour at the point of use.
+
+This is not tidiness for its own sake — the backdrop, the fog, the ground and
+the hemisphere light all have to agree, and they are set in four different
+files. A hard-coded hex in any one of them is a seam that appears the first
+time the palette is touched.
+
+### D68 — Key letters printed on the pads
+
+Each pad carries the letter of the key that fires it, on a small plane above
+the cap. Sixteen small canvases and no font dependency, where sixteen extruded
+glyphs would be sixteen geometries and a font loader.
+
+They are not baked into the cap's colour map, because that map is a world-space
+box projection shared with every other moulded part — excellent for grain,
+useless for placing a glyph.
+
+The labels come from `KEY_LABELS` in `interaction.js`, because they are a
+property of the input map. `rig.js` does not import it; `main.js` passes a
+`labelFor` function in. Geometry has no business knowing an input layer exists
+(D6).
+
+### D69 — Gradient backdrop and a dissolving ground
+
+A flat background colour gives the silhouette exactly one contrast value to sit
+against, so whichever value is chosen, part of the object disappears into it. A
+vertical gradient guarantees the light top of the case reads against a darker
+band and its shadow side against a lighter one.
+
+Assigned to `scene.background`, the gradient is drawn as a screen-space quad,
+so it does not move when the camera orbits — which is what a photographic
+backdrop does, and part of why the result reads as a product shot rather than a
+skybox.
+
+The ground is one large disc with fog matched to the bottom of the backdrop, so
+it dissolves rather than ending at a visible edge. Fog `near` is set beyond the
+rig, so nothing on the instrument is ever fogged. The `GridHelper` is gone —
+a debug aid that had been left in.
+
+**Recorded gotcha.** three draws the background quad *through the tone mapper*
+(`background_frag` includes `<tonemapping_fragment>`), so the rendered sweep
+lands a few percent darker than the authored hex. The CSS overlay uses the
+authored values. The overlay covers the whole viewport and cross-fades, so the
+two are never side by side and the difference is invisible — but the numbers
+are not identical, and the comment in `index.html` says so rather than sending
+someone hunting for a bug that is not there.
+
+---
+
+## 15. Next: phase 5
 
 - `AnalyserNode` on the master bus (tapping after `masterFilter`, per D24)
 - `getByteFrequencyData` each frame; bin ranges → bass / mid / high, smoothed

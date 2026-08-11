@@ -6,23 +6,26 @@
  * report, no binary assets in the repo, and every parameter is explainable.
  *
  * The requirement asks for textures "of different kinds". Each material family
- * gets a full set:
+ * gets a full set, and the art direction adds two more kinds on top:
  *
  *   map           base colour        sRGB      what colour the surface is
  *   normalMap     surface direction  linear    how light bends off it
  *   roughnessMap  microsurface       linear    how sharp the reflection is
- *   emissive      self-illumination  sRGB      the pad LEDs
+ *   emissive      self-illumination  sRGB      the pad rims
+ *   gradientMap   shading ramp       linear    how toon shading bands the light
+ *   glyph         drawn label        sRGB      the key letter on each pad
  *
  * COLOUR SPACE IS NOT OPTIONAL. Base colour maps hold perceptual sRGB values
  * and must be tagged SRGBColorSpace so the renderer linearises them before
- * lighting. Normal and roughness maps hold raw numbers — a normal map's RGB is
- * a direction vector, not a colour — and must stay linear. Tagging a normal
- * map as sRGB silently bends every surface normal the wrong way, and the
- * result looks merely "a bit off" rather than obviously broken, which is why
- * it is such a common and long-lived bug.
+ * lighting. Normal, roughness and gradient maps hold raw numbers — a normal
+ * map's RGB is a direction vector, not a colour — and must stay linear.
+ * Tagging a normal map as sRGB silently bends every surface normal the wrong
+ * way, and the result looks merely "a bit off" rather than obviously broken,
+ * which is why it is such a common and long-lived bug.
  */
 
 import * as THREE from 'three';
+import { cssHex } from './palette.js';
 
 // ---------------------------------------------------------------------------
 // Small signal-processing helpers
@@ -195,24 +198,34 @@ function tintedTexture(field, size, darkHex, lightHex) {
 
 // ---------------------------------------------------------------------------
 // Material families
+//
+// THE COLOUR MAPS ARE MODULATION, NOT COLOUR.
+//
+// Three multiplies `material.map` by `material.color`. When the map ran from
+// near-black to mid-grey — which is what a photographic brushed-aluminium map
+// looks like — that product could only ever be dark, and every saturated
+// colour asked for came back muddy. The maps here span a narrow band just
+// below white, so the map supplies the *grain* and material.color supplies the
+// hue. The same field still drives all three maps, so a pit is simultaneously
+// darker, tilted and duller and still reads as one physical surface.
 // ---------------------------------------------------------------------------
 
 /**
- * Brushed aluminium.
+ * Soft moulded plastic — the case shell, lid, wings and panel.
  *
- * The whole character comes from anisotropy: blur white noise hard along one
- * axis and barely at all across it, and the streaks that survive read as
- * directional brush grooves. Same field drives colour, normal and roughness,
- * so a groove is simultaneously darker, tilted and duller — which is what
- * makes it look like one physical surface rather than three overlaid effects.
+ * A wide blur leaves only very low-frequency variation, which is what an
+ * injection-moulded surface actually looks like: not smooth, but not detailed
+ * either. The normal strength is a third of what the old brushed-metal family
+ * used, because visible micro-relief is precisely the thing that stops a
+ * surface reading as a toy.
  */
-export function brushedMetalMaps(size = 512) {
-  const height = normalise(boxBlur(whiteNoise(size), size, 14, 1));
+export function mouldedMaps(size = 256) {
+  const height = normalise(boxBlur(whiteNoise(size), size, 3, 3));
 
   return {
-    map: tintedTexture(height, size, 0x4a4e54, 0x9aa0a8),
-    normalMap: normalMapFromHeight(height, size, 1.6),
-    roughnessMap: grayscaleTexture(height, size, 0.22, 0.52),
+    map: tintedTexture(height, size, 0xe8e8e8, 0xffffff),
+    normalMap: normalMapFromHeight(height, size, 0.5),
+    roughnessMap: grayscaleTexture(height, size, 0.62, 0.78),
   };
 }
 
@@ -225,24 +238,29 @@ export function rubberMaps(size = 256) {
   const height = normalise(boxBlur(whiteNoise(size), size, 1, 1));
 
   return {
-    map: tintedTexture(height, size, 0x1c1e21, 0x33373c),
-    normalMap: normalMapFromHeight(height, size, 2.4),
-    roughnessMap: grayscaleTexture(height, size, 0.72, 0.94),
+    map: tintedTexture(height, size, 0xdcdcdc, 0xffffff),
+    normalMap: normalMapFromHeight(height, size, 1.1),
+    roughnessMap: grayscaleTexture(height, size, 0.70, 0.90),
   };
 }
 
 /**
- * Textured plastic for the control panel and knobs — a slightly coarser,
- * flatter grain than the rubber, tinted darker than the chassis so the two
- * metal-vs-plastic families are visually distinct under the same light.
+ * Brushed aluminium, kept for the scissor mechanism.
+ *
+ * The whole character comes from anisotropy: blur white noise hard along one
+ * axis and barely at all across it, and the streaks that survive read as
+ * directional brush grooves. One machined family among the moulded ones is
+ * what stops the rig looking like it was carved from a single block, and the
+ * mechanism is the honest place for it — that is the part that would really be
+ * metal.
  */
-export function plasticMaps(size = 256) {
-  const height = normalise(boxBlur(whiteNoise(size), size, 2, 2));
+export function brushedMetalMaps(size = 512) {
+  const height = normalise(boxBlur(whiteNoise(size), size, 14, 1));
 
   return {
-    map: tintedTexture(height, size, 0x17191c, 0x2b2f34),
-    normalMap: normalMapFromHeight(height, size, 1.1),
-    roughnessMap: grayscaleTexture(height, size, 0.5, 0.72),
+    map: tintedTexture(height, size, 0xc8ccd4, 0xffffff),
+    normalMap: normalMapFromHeight(height, size, 0.9),
+    roughnessMap: grayscaleTexture(height, size, 0.30, 0.55),
   };
 }
 
@@ -254,4 +272,163 @@ export function configureMaps(maps, repeatX, repeatY, anisotropy = 1) {
     texture.needsUpdate = true;
   }
   return maps;
+}
+
+// ---------------------------------------------------------------------------
+// Toon shading ramp
+// ---------------------------------------------------------------------------
+
+/**
+ * The gradient map that turns smooth shading into cartoon bands.
+ *
+ * MeshToonMaterial does not shade by `dot(N, L)` directly. It uses that value,
+ * remapped to 0..1, as the *texture coordinate* of this one-dimensional ramp,
+ * and whatever the ramp holds at that coordinate becomes the light's
+ * contribution. So the ramp is not a decoration on the lighting model — it is
+ * the lighting model's transfer function, expressed as a texture. A smooth
+ * ramp reproduces ordinary diffuse shading; a stepped one gives cel shading,
+ * and the step positions are the entire look.
+ *
+ * NearestFilter is what makes the steps steps. With LinearFilter the hardware
+ * interpolates between texels on the way out and the bands dissolve back into
+ * the gradient they were built from.
+ *
+ * The steps here are deliberately uneven — 0.45, 0.62, 0.80, 1.0. Evenly
+ * spaced bands put the biggest jump in the middle of the lit side of a
+ * surface, where the eye is looking; loading the range towards the light keeps
+ * the terminator soft and the shadow side open rather than crushed.
+ */
+export function toonRamp(levels = [0.45, 0.62, 0.80, 1.0]) {
+  // Width is a multiple of 4, so the default unpack alignment of 4 bytes
+  // matches the row length exactly and no padding is needed.
+  const width = Math.ceil(levels.length / 4) * 4;
+  const data = new Uint8Array(width);
+
+  for (let i = 0; i < width; i++) {
+    const level = levels[Math.min(i, levels.length - 1)];
+    data[i] = Math.round(THREE.MathUtils.clamp(level, 0, 1) * 255);
+  }
+
+  const texture = new THREE.DataTexture(data, width, 1, THREE.RedFormat);
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// ---------------------------------------------------------------------------
+// Environment and labels
+// ---------------------------------------------------------------------------
+
+/**
+ * A vertical two-stop gradient, used as the scene background.
+ *
+ * Two texels wide because the gradient does not vary horizontally and a 2x256
+ * image is all the information there is; the sampler stretches it across the
+ * viewport at no cost. Assigned to `scene.background` it is drawn as a
+ * screen-space quad, so it does not move when the camera orbits — which is
+ * what a photographic backdrop does, and part of why the result reads as a
+ * product shot rather than as a skybox.
+ */
+export function verticalGradientTexture(topHex, bottomHex, height = 256) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = height;
+
+  const g = canvas.getContext('2d');
+  const gradient = g.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, cssHex(topHex));
+  gradient.addColorStop(1, cssHex(bottomHex));
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, 2, height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/**
+ * An equirectangular studio environment, drawn rather than photographed.
+ *
+ * This is the map that makes metal look like metal. A metallic surface has no
+ * diffuse response whatsoever — all it can do is reflect — so with no
+ * environment it reflects an empty scene and renders black. The usual fix is
+ * to load an HDRI, which means a binary asset and a licence; this is three
+ * radial gradients on a canvas.
+ *
+ * The layout is a softbox rig: a large bright source high on one side, a
+ * weaker cooler one opposite for fill, a narrow bright band along the horizon
+ * to give edges something to catch, and a darker floor. Equirectangular means
+ * x maps to azimuth over 2*pi and y to elevation over pi, so a circle drawn
+ * near the top of the canvas becomes a broad soft source overhead — which is
+ * exactly where a softbox goes.
+ *
+ * Handed to PMREMGenerator it becomes a prefiltered radiance map, so rough
+ * materials read blurred mip levels and glossy ones read sharp ones, which is
+ * what gives the roughness maps something to actually vary.
+ */
+export function studioEnvironmentTexture(width = 512) {
+  const height = width / 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const g = canvas.getContext('2d');
+
+  const sky = g.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0.00, '#f2f5ff');
+  sky.addColorStop(0.45, '#b9c4de');
+  sky.addColorStop(0.52, '#8e99b4');
+  sky.addColorStop(1.00, '#3f465c');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, width, height);
+
+  function softbox(cx, cy, radius, colour, strength) {
+    const glow = g.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    glow.addColorStop(0, `rgba(${colour}, ${strength})`);
+    glow.addColorStop(1, `rgba(${colour}, 0)`);
+    g.fillStyle = glow;
+    g.fillRect(0, 0, width, height);
+  }
+
+  softbox(width * 0.28, height * 0.20, width * 0.22, '255, 250, 238', 1.0);
+  softbox(width * 0.74, height * 0.30, width * 0.18, '214, 231, 255', 0.55);
+  softbox(width * 0.52, height * 0.48, width * 0.30, '255, 255, 255', 0.16);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/**
+ * A single character drawn white on transparent, for the key letter printed on
+ * each pad.
+ *
+ * Drawn rather than modelled: sixteen extruded glyphs would be sixteen
+ * geometries and a font dependency, where this is one canvas each and no
+ * dependency at all. Premultiplied alpha is off (the three default), so the
+ * transparent margin must still be white rather than black — a black
+ * transparent margin bleeds dark fringes into the glyph edge when the mipmap
+ * chain averages colour and alpha independently.
+ */
+export function glyphTexture(text, size = 128) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+
+  const g = canvas.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0)';
+  g.fillRect(0, 0, size, size);
+
+  g.fillStyle = '#ffffff';
+  g.font = `600 ${Math.round(size * 0.6)}px ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, size / 2, size * 0.54);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }

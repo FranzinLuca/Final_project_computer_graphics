@@ -9,35 +9,59 @@
  * This module never imports audio.js. It listens on the event bus for
  * 'pad:hit' and does not know or care whether that came from a mouse click, a
  * key press or the sequencer.
+ *
+ * Every solid here is a rounded box or a lathed cylinder from geometry.js.
+ * Nothing in the rig has a hard 90-degree edge, because nothing manufactured
+ * does: an injection mould cannot fill a sharp internal corner and a milled
+ * part is deburred before it ships. The fillets are the difference between the
+ * object reading as a product and reading as a diagram of one.
  */
 
 import * as THREE from 'three';
 import { bus } from './events.js';
 import { PADS } from './pads.js';
-import { brushedMetalMaps, rubberMaps, plasticMaps, configureMaps } from './textures.js';
+import { PALETTE, padColour, padGlow } from './palette.js';
+import { roundedBoxGeometry, roundedCylinderGeometry } from './geometry.js';
+import {
+  mouldedMaps,
+  rubberMaps,
+  brushedMetalMaps,
+  configureMaps,
+  glyphTexture,
+} from './textures.js';
 
 // ---------------------------------------------------------------------------
 // Dimensions — one place, so nothing is a magic number buried in a call
+//
+// Each solid carries its own fillet radius next to its size. A single global
+// radius does not work: the same 40 mm fillet that reads as a soft shoulder on
+// the case shell would swallow a 12 mm pad rim whole. Radius is a proportion
+// of the part, not a property of the scene.
 // ---------------------------------------------------------------------------
 
 export const DIMS = {
   bodyW: 1.10,
   bodyD: 0.78,
   bodyH: 0.30,
+  bodyR: 0.055,
 
-  wallT: 0.03,   // panel thickness, used by lid and wings
+  wallT: 0.038,  // panel thickness, used by lid and wings
+  wallR: 0.019,
 
   wingW: 0.34,
 
   deckW: 0.74,
   deckD: 0.58,
-  deckT: 0.03,
+  deckT: 0.036,
+  deckR: 0.016,
 
   padPitch: 0.135,
-  padSize: 0.10,
-  padH: 0.022,
-  ledSize: 0.118,
-  ledH: 0.006,
+  padSize: 0.104,
+  padH: 0.038,
+  padR: 0.015,
+  ledSize: 0.120,
+  ledH: 0.012,
+  ledR: 0.006,
   padTravel: 0.014,   // how far a pad sinks when struck
 
   /**
@@ -45,18 +69,21 @@ export const DIMS = {
    * either end. hierarchy.js derives deck height from it.
    */
   armHalf: 0.16,
-  armT: 0.026,
+  armT: 0.028,
+  armR: 0.014,
 
   armSpread: 0.20,      // front/back separation of the two arm pairs
   scissorBaseY: 0.24,   // where the scissor stands inside the case
 
   panelW: 0.72,
   panelD: 0.17,
-  panelT: 0.022,
+  panelT: 0.028,
+  panelR: 0.013,
   linkageLen: 0.13,
 
-  knobR: 0.030,
-  knobH: 0.032,
+  knobR: 0.034,
+  knobH: 0.030,
+  knobCorner: 0.013,
 };
 
 // ---------------------------------------------------------------------------
@@ -64,59 +91,86 @@ export const DIMS = {
 // ---------------------------------------------------------------------------
 
 function buildMaterials(anisotropy) {
-  const chassisMaps = configureMaps(brushedMetalMaps(512), 2, 1, anisotropy);
-  const padMaps = configureMaps(rubberMaps(256), 1, 1, anisotropy);
-  const plasticMapSet = configureMaps(plasticMaps(256), 3, 1, anisotropy);
+  // Repeats are counted in world units now, because geometry.js unwraps with a
+  // box projection in metres rather than 0..1 per face. Three tiles per metre
+  // puts the grain at roughly the same visual density on a 1.1 m shell and on
+  // a 30 mm knob, which per-face UVs could never do.
+  const mouldedSet = configureMaps(mouldedMaps(256), 3, 3, anisotropy);
+  const padSet = configureMaps(rubberMaps(256), 14, 14, anisotropy);
+  const metalSet = configureMaps(brushedMetalMaps(512), 6, 6, anisotropy);
 
-  const chassis = new THREE.MeshStandardMaterial({
-    ...chassisMaps,
-    color: 0x8f959c,
-    metalness: 0.92,
-    roughness: 0.44,
-    normalScale: new THREE.Vector2(0.7, 0.7),
+  /** Soft moulded plastic: the case, its lid and its wings. */
+  const shell = new THREE.MeshStandardMaterial({
+    ...mouldedSet,
+    color: PALETTE.shell,
+    metalness: 0.0,
+    roughness: 0.58,
+    normalScale: new THREE.Vector2(0.35, 0.35),
   });
 
-  // Same maps, different tint and finish: painted flight-case panel rather
-  // than bare metal. Reusing the maps costs nothing and ties the family
-  // together visually.
-  const shell = new THREE.MeshStandardMaterial({
-    ...chassisMaps,
-    color: 0x2f3338,
-    metalness: 0.55,
-    roughness: 0.62,
+  const shellDeep = new THREE.MeshStandardMaterial({
+    ...mouldedSet,
+    color: PALETTE.shellDeep,
+    metalness: 0.0,
+    roughness: 0.64,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+  });
+
+  const deck = new THREE.MeshStandardMaterial({
+    ...mouldedSet,
+    color: PALETTE.deck,
+    metalness: 0.0,
+    roughness: 0.55,
+    normalScale: new THREE.Vector2(0.3, 0.3),
+  });
+
+  const panel = new THREE.MeshStandardMaterial({
+    ...mouldedSet,
+    color: PALETTE.panel,
+    metalness: 0.0,
+    roughness: 0.5,
+    normalScale: new THREE.Vector2(0.3, 0.3),
+  });
+
+  /**
+   * The mechanism, and the only metal left in the rig.
+   *
+   * Metalness needs something to reflect. A metallic surface has no diffuse
+   * response at all, so with no environment map it renders as whatever the
+   * specular lobes happen to catch — which is to say, nearly black. main.js
+   * builds a procedural studio environment precisely so this material has
+   * something to be. Drop that and the scissor arms go dead.
+   */
+  const mech = new THREE.MeshStandardMaterial({
+    ...metalSet,
+    color: PALETTE.mech,
+    metalness: 0.62,
+    roughness: 0.36,
     normalScale: new THREE.Vector2(0.5, 0.5),
   });
 
-  const rubber = new THREE.MeshStandardMaterial({
-    ...padMaps,
-    color: 0x2a2e33,
+  const accent = new THREE.MeshStandardMaterial({
+    color: PALETTE.accent,
+    metalness: 0.15,
+    roughness: 0.38,
+  });
+
+  /** The recessed bay the pad deck rises out of. */
+  const recess = new THREE.MeshStandardMaterial({
+    color: 0x3c4256,
     metalness: 0.0,
-    roughness: 0.88,
-    normalScale: new THREE.Vector2(1.0, 1.0),
+    roughness: 0.85,
   });
 
-  const plastic = new THREE.MeshStandardMaterial({
-    ...plasticMapSet,
-    color: 0x24272b,
-    metalness: 0.1,
-    roughness: 0.66,
-  });
-
-  const brass = new THREE.MeshStandardMaterial({
-    color: 0xc9a227,
-    metalness: 0.85,
-    roughness: 0.32,
-  });
-
-  return { chassis, shell, rubber, plastic, brass };
+  return { shell, shellDeep, deck, panel, mech, accent, recess, padSet };
 }
 
 // ---------------------------------------------------------------------------
 // Part builders
 // ---------------------------------------------------------------------------
 
-function box(w, h, d, material, castShadow = true) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+function roundedBox(w, h, d, radius, material, castShadow = true) {
+  const mesh = new THREE.Mesh(roundedBoxGeometry(w, h, d, radius), material);
   mesh.castShadow = castShadow;
   mesh.receiveShadow = true;
   return mesh;
@@ -127,11 +181,11 @@ function box(w, h, d, material, castShadow = true) {
  * offset inside it.
  *
  * This is the single most important habit in the whole hierarchy. Three.js
- * rotates an object about its own origin, and a BoxGeometry's origin is its
- * centre — so rotating a lid mesh directly spins it about its middle like a
- * propeller. Putting an empty Group at the hinge line and offsetting the mesh
- * by half its length inside that group means rotating the group swings the
- * mesh about its edge, which is what a hinge does.
+ * rotates an object about its own origin, and a box's origin is its centre —
+ * so rotating a lid mesh directly spins it about its middle like a propeller.
+ * Putting an empty Group at the hinge line and offsetting the mesh by half its
+ * length inside that group means rotating the group swings the mesh about its
+ * edge, which is what a hinge does.
  */
 function hinge(position) {
   const group = new THREE.Group();
@@ -139,27 +193,50 @@ function hinge(position) {
   return group;
 }
 
-function buildPad(padDef, materials) {
+function buildPad(padDef, materials, capMaterials, label) {
   const group = new THREE.Group();
 
-  // The LED is a slightly oversized plate under the cap, so a rim of colour
-  // shows around the rubber. Each pad needs its own material instance because
-  // each one's emissiveIntensity is animated independently.
+  /**
+   * The rim is a slightly oversized plate under the cap, so a band of colour
+   * shows around the pad and lights up when it is struck. Each pad needs its
+   * own material instance because each one's emissiveIntensity is animated
+   * independently — the price of driving sixteen glows without a shader.
+   */
   const ledMaterial = new THREE.MeshStandardMaterial({
-    color: 0x0a0b0c,
-    emissive: new THREE.Color().setHSL(padDef.hue, 0.85, 0.5),
-    emissiveIntensity: 0.12,
+    color: 0x1b1f2e,
+    emissive: padGlow(padDef.hue),
+    emissiveIntensity: 0.35,
     metalness: 0.0,
-    roughness: 0.5,
+    roughness: 0.45,
   });
 
-  const led = box(DIMS.ledSize, DIMS.ledH, DIMS.ledSize, ledMaterial, false);
+  const led = roundedBox(DIMS.ledSize, DIMS.ledH, DIMS.ledSize, DIMS.ledR, ledMaterial, false);
   led.position.y = DIMS.ledH / 2;
   group.add(led);
 
-  const cap = box(DIMS.padSize, DIMS.padH, DIMS.padSize, materials.rubber);
+  const cap = roundedBox(DIMS.padSize, DIMS.padH, DIMS.padSize, DIMS.padR, capMaterials.get(padDef.hue));
   cap.position.y = DIMS.ledH + DIMS.padH / 2;
   group.add(cap);
+
+  // The key letter, screen-printed on the cap. Drawn on a plane rather than
+  // baked into the cap's colour map, because the cap's UVs are a world-space
+  // box projection shared with every other moulded part — good for grain,
+  // useless for placing a glyph.
+  if (label) {
+    const print = new THREE.Mesh(
+      new THREE.PlaneGeometry(DIMS.padSize * 0.6, DIMS.padSize * 0.6),
+      new THREE.MeshBasicMaterial({
+        map: glyphTexture(label),
+        color: PALETTE.ink,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      })
+    );
+    print.rotation.x = -Math.PI / 2;
+    print.position.y = DIMS.ledH + DIMS.padH + 0.0015;
+    group.add(print);
+  }
 
   // Everything a hit needs to touch, gathered up front so the per-frame
   // update never has to search the scene graph.
@@ -179,16 +256,17 @@ function buildKnob(label, materials) {
   const group = new THREE.Group();
 
   const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(DIMS.knobR * 0.86, DIMS.knobR, DIMS.knobH, 24),
-    materials.plastic
+    roundedCylinderGeometry(DIMS.knobR, DIMS.knobH, DIMS.knobCorner, 40, 5),
+    materials.shellDeep
   );
   body.castShadow = true;
-  body.position.y = DIMS.knobH / 2;
+  body.receiveShadow = true;
   group.add(body);
 
-  // Pointer stripe, so rotation is legible at a glance.
-  const indicator = box(0.005, 0.004, DIMS.knobR * 0.8, materials.brass);
-  indicator.position.set(0, DIMS.knobH + 0.001, -DIMS.knobR * 0.42);
+  // Pointer stripe, so rotation is legible at a glance. Sunk a hair into the
+  // cap rather than floated on top, so it reads as inlaid.
+  const indicator = roundedBox(0.007, 0.006, DIMS.knobR * 0.72, 0.003, materials.accent, false);
+  indicator.position.set(0, DIMS.knobH - 0.001, -DIMS.knobR * 0.40);
   group.add(indicator);
 
   return { label, group, value: 0.5 };
@@ -204,10 +282,30 @@ function buildKnob(label, materials) {
  * Every joint is left at its identity transform. hierarchy.js poses the
  * skeleton before the first frame is drawn.
  *
- * @param {{ anisotropy?: number }} options
+ * `labelFor` is injected rather than imported: the key letters live in
+ * interaction.js because they are a property of the input map, and rig.js has
+ * no business knowing an input layer exists. main.js owns the wiring, here as
+ * everywhere else.
+ *
+ * @param {{ anisotropy?: number, labelFor?: (padId: string) => string }} options
  */
-export function buildRig({ anisotropy = 1 } = {}) {
+export function buildRig({ anisotropy = 1, labelFor = null } = {}) {
   const materials = buildMaterials(anisotropy);
+
+  // One cap material per hue rather than per pad. Cap colour never animates —
+  // only the rim's emissive does — so sixteen instances would be fifteen
+  // redundant shader binds for no visible difference.
+  const capMaterials = new Map();
+  for (const padDef of PADS) {
+    if (capMaterials.has(padDef.hue)) continue;
+    capMaterials.set(padDef.hue, new THREE.MeshStandardMaterial({
+      ...materials.padSet,
+      color: padColour(padDef.hue),
+      metalness: 0.0,
+      roughness: 0.72,
+      normalScale: new THREE.Vector2(0.45, 0.45),
+    }));
+  }
 
   const root = new THREE.Group();
 
@@ -215,29 +313,29 @@ export function buildRig({ anisotropy = 1 } = {}) {
   const caseBody = new THREE.Group();
   root.add(caseBody);
 
-  const shell = box(DIMS.bodyW, DIMS.bodyH, DIMS.bodyD, materials.shell);
+  const shell = roundedBox(DIMS.bodyW, DIMS.bodyH, DIMS.bodyD, DIMS.bodyR, materials.shell);
   shell.position.y = DIMS.bodyH / 2;
   caseBody.add(shell);
 
-  // Corner protectors: pure decoration, but they are what make the silhouette
-  // read as a flight case rather than a crate.
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const corner = box(0.07, 0.07, 0.07, materials.chassis);
-      corner.position.set(
-        sx * (DIMS.bodyW / 2 - 0.02),
-        DIMS.bodyH - 0.03,
-        sz * (DIMS.bodyD / 2 - 0.02)
-      );
-      caseBody.add(corner);
-    }
-  }
+  // The bay the deck rises out of. Without it the deck plate simply passes
+  // through an unbroken top surface, which the eye reads instantly as two
+  // objects intersecting rather than one mechanism emerging.
+  const recess = roundedBox(
+    DIMS.deckW + 0.03,
+    0.02,
+    DIMS.deckD + 0.03,
+    0.008,
+    materials.recess,
+    false
+  );
+  recess.position.y = DIMS.bodyH - 0.008;
+  caseBody.add(recess);
 
   // --- lid: hinged along the top rear edge --------------------------------
   const lidPivot = hinge(new THREE.Vector3(0, DIMS.bodyH, -DIMS.bodyD / 2));
   caseBody.add(lidPivot);
 
-  const lid = box(DIMS.bodyW, DIMS.wallT, DIMS.bodyD, materials.shell);
+  const lid = roundedBox(DIMS.bodyW, DIMS.wallT, DIMS.bodyD, DIMS.wallR, materials.shellDeep);
   lid.position.set(0, DIMS.wallT / 2, DIMS.bodyD / 2); // offset forward from the hinge
   lidPivot.add(lid);
 
@@ -246,11 +344,11 @@ export function buildRig({ anisotropy = 1 } = {}) {
   const wingRightPivot = hinge(new THREE.Vector3(DIMS.bodyW / 2, DIMS.bodyH, 0));
   caseBody.add(wingLeftPivot, wingRightPivot);
 
-  const wingLeft = box(DIMS.wingW, DIMS.wallT, DIMS.bodyD, materials.shell);
+  const wingLeft = roundedBox(DIMS.wingW, DIMS.wallT, DIMS.bodyD, DIMS.wallR, materials.shellDeep);
   wingLeft.position.set(-DIMS.wingW / 2, DIMS.wallT / 2, 0);
   wingLeftPivot.add(wingLeft);
 
-  const wingRight = box(DIMS.wingW, DIMS.wallT, DIMS.bodyD, materials.shell);
+  const wingRight = roundedBox(DIMS.wingW, DIMS.wallT, DIMS.bodyD, DIMS.wallR, materials.shellDeep);
   wingRight.position.set(DIMS.wingW / 2, DIMS.wallT / 2, 0);
   wingRightPivot.add(wingRight);
 
@@ -271,8 +369,8 @@ export function buildRig({ anisotropy = 1 } = {}) {
     a.position.z = z;
     b.position.z = z;
 
-    a.add(box(DIMS.armHalf * 2, DIMS.armT, DIMS.armT, materials.chassis));
-    b.add(box(DIMS.armHalf * 2, DIMS.armT, DIMS.armT, materials.chassis));
+    a.add(roundedBox(DIMS.armHalf * 2, DIMS.armT, DIMS.armT, DIMS.armR, materials.mech));
+    b.add(roundedBox(DIMS.armHalf * 2, DIMS.armT, DIMS.armT, DIMS.armR, materials.mech));
 
     scissor.add(a, b);
     armPivotsA.push(a);
@@ -283,7 +381,7 @@ export function buildRig({ anisotropy = 1 } = {}) {
   const deck = new THREE.Group();
   scissor.add(deck);
 
-  const deckPlate = box(DIMS.deckW, DIMS.deckT, DIMS.deckD, materials.chassis);
+  const deckPlate = roundedBox(DIMS.deckW, DIMS.deckT, DIMS.deckD, DIMS.deckR, materials.deck);
   deckPlate.position.y = DIMS.deckT / 2;
   deck.add(deckPlate);
 
@@ -300,7 +398,7 @@ export function buildRig({ anisotropy = 1 } = {}) {
     const row = Math.floor(index / 4);
     const col = index % 4;
 
-    const pad = buildPad(padDef, materials);
+    const pad = buildPad(padDef, materials, capMaterials, labelFor?.(padDef.id) ?? null);
     pad.group.position.set(
       col * DIMS.padPitch - span / 2,
       0,
@@ -319,7 +417,7 @@ export function buildRig({ anisotropy = 1 } = {}) {
   );
   caseBody.add(linkagePivot);
 
-  const linkageArm = box(0.05, DIMS.linkageLen, 0.04, materials.chassis);
+  const linkageArm = roundedBox(0.05, DIMS.linkageLen, 0.04, 0.018, materials.mech);
   linkageArm.position.y = DIMS.linkageLen / 2;
   linkagePivot.add(linkageArm);
 
@@ -329,7 +427,9 @@ export function buildRig({ anisotropy = 1 } = {}) {
   controlPanel.position.y = DIMS.linkageLen;
   linkagePivot.add(controlPanel);
 
-  const panelPlate = box(DIMS.panelW, DIMS.panelT, DIMS.panelD, materials.plastic);
+  const panelPlate = roundedBox(
+    DIMS.panelW, DIMS.panelT, DIMS.panelD, DIMS.panelR, materials.panel
+  );
   panelPlate.position.y = DIMS.panelT / 2;
   controlPanel.add(panelPlate);
 
@@ -391,14 +491,14 @@ export function buildRig({ anisotropy = 1 } = {}) {
         if (pad.press !== 0) {
           pad.press = 0;
           pad.group.position.y = pad.restY;
-          pad.ledMaterial.emissiveIntensity = 0.12;
+          pad.ledMaterial.emissiveIntensity = 0.35;
         }
         continue;
       }
 
       pad.press *= decay;
       pad.group.position.y = pad.restY - pad.press * DIMS.padTravel;
-      pad.ledMaterial.emissiveIntensity = 0.12 + pad.press * 2.2;
+      pad.ledMaterial.emissiveIntensity = 0.35 + pad.press * 3.0;
     }
   }
 
