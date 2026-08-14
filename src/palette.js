@@ -1,16 +1,26 @@
 /**
  * palette.js — the colour scheme, in one place.
  *
- * The art direction is a soft-toy version of studio hardware: a warm off-white
- * shell, saturated but slightly desaturated pad colours, and a cool blue-grey
- * backdrop for them to sit against. Warm object on a cool ground is the oldest
- * trick there is for making a thing look like it was photographed rather than
- * rendered, and it costs nothing.
+ * The art direction changed at phase 5. It was a soft-toy version of studio
+ * hardware: warm off-white shell, coloured plastic pads, cool backdrop. It is
+ * now a grid controller — a dark slab with neutral caps that are lit from
+ * underneath — and the palette had to move with it.
  *
- * This module exists so that the backdrop, the ground, the lights and the
- * hardware cannot drift apart. Anything that picks a colour imports it from
- * here; nothing hard-codes a hex value at the point of use. It imports only
- * three, exactly like pads.js imports nothing — leaf modules, no cycles.
+ * The single most consequential change: pad colour is no longer a property of
+ * the plastic. Every cap is the same neutral material, and hue arrives purely
+ * as emission from the rim beneath it. Sixteen cap materials collapse to one,
+ * and "what colour is this pad" stops being a question about the model and
+ * becomes a question about the sequencer's state. That is the behaviour the
+ * reference hardware actually has, and it is also the cheaper thing to draw.
+ *
+ * The slab is deliberately not black. True black gives the tone mapper nothing
+ * to work with — every shading cue lands in the bottom two percent of the
+ * range and the form disappears — and it sits badly against a toon-shaded
+ * character. A dark desaturated blue keeps the shading readable and stays in
+ * the same family as the backdrop.
+ *
+ * This module imports only three, exactly like pads.js imports nothing — leaf
+ * modules, no cycles.
  */
 
 import * as THREE from 'three';
@@ -22,14 +32,21 @@ export const PALETTE = {
   ground: 0x6c7799,
   groundRim: 0x7f8aab,
 
-  // --- hardware ------------------------------------------------------------
-  shell: 0xf6f1e7,      // the case: warm off-white, never pure white
-  shellDeep: 0xe4ddcd,  // lid and wings, a shade down so panels separate
-  deck: 0xeee8dc,
-  panel: 0xf2ece0,
-  mech: 0x98a2b8,       // scissor arms and linkage: cool grey-blue
-  ink: 0x2f3348,        // pad glyphs, pupils, anything that reads as printed
+  // --- the slab ------------------------------------------------------------
+  slab: 0x2b3145,       // the body and the bezel rails
+  slabDeep: 0x232839,   // wing undersides: the exterior when the slab is shut
+  well: 0x151928,       // the recessed floor the pads stand on
+  mech: 0x98a2b8,       // hinge barrels: the only metal left in the rig
+  ink: 0x1a1d2b,        // pad glyphs and anything that reads as printed
   accent: 0xffb257,     // knob indicators and small warm highlights
+
+  // --- pads ----------------------------------------------------------------
+  /**
+   * One neutral cap colour for all sixteen. Slightly warm and slightly off
+   * white, so an unlit pad reads as frosted plastic rather than as a hole in
+   * the image, and so the emissive underneath has somewhere to go.
+   */
+  padCap: 0xe9e6dd,
 
   // --- mascot --------------------------------------------------------------
   //
@@ -46,19 +63,22 @@ export const PALETTE = {
 };
 
 /**
- * A pad's cap colour, from the hue already carried by its entry in pads.js.
+ * The hue a pad emits when it is lit.
  *
- * Saturation is held below 0.7 on purpose. Fully saturated hues under a bright
- * key light clip to a flat area of one colour, which is what makes cheerful
- * palettes read as garish; backing off leaves room for the shading to show.
+ * Pushed bright and saturated on purpose: this is a light source, not a
+ * surface, and the desaturation that kept the old cap colours from clipping
+ * would only make the glow look grey here.
+ */
+export function padGlow(hue) {
+  return new THREE.Color().setHSL(hue, 0.82, 0.58);
+}
+
+/**
+ * Retained for anything still asking for a pad's diffuse colour — the label
+ * plane, a future legend in the GUI. Nothing in rig.js calls it any more.
  */
 export function padColour(hue, saturation = 0.60, lightness = 0.58) {
   return new THREE.Color().setHSL(hue, saturation, lightness);
-}
-
-/** The same hue pushed bright, for the emissive rim under the cap. */
-export function padGlow(hue) {
-  return new THREE.Color().setHSL(hue, 0.85, 0.56);
 }
 
 /** `0xrrggbb` as the `#rrggbb` string the 2D canvas API wants. */

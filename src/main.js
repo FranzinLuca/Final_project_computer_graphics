@@ -17,6 +17,8 @@ import { buildRig } from './rig.js';
 import { buildMascot } from './mascot.js';
 import { initHierarchy } from './hierarchy.js';
 import { initInteraction, KEY_LABELS } from './interaction.js';
+import { initLighting } from './lighting.js';
+import { buildEnvironment, MAX_ORBIT } from './environment.js';
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -57,49 +59,22 @@ renderer.toneMappingExposure = 1.0;
 // ---------------------------------------------------------------------------
 
 const scene = new THREE.Scene();
-
-// A gradient rather than a flat colour. A flat background gives the silhouette
-// exactly one contrast value to sit against, so whichever value is chosen, part
-// of the object disappears into it. A vertical ramp guarantees the light top of
-// the case reads against a darker band and its shadow side against a lighter
-// one.
-scene.background = verticalGradientTexture(PALETTE.skyTop, PALETTE.skyBottom);
-
-/**
- * The environment map, prefiltered.
- *
- * PMREMGenerator turns one equirectangular image into the mip chain that image
- * based lighting needs: each level is the original convolved with a wider
- * cosine lobe, so a roughness of 0.1 samples a sharp level and a roughness of
- * 0.9 samples a blurred one. Without that prefilter, roughness would have
- * nothing to select between and every roughness map in the project would be
- * doing nothing.
- *
- * Both the source texture and the generator are disposed immediately: the
- * result lives on the GPU and neither is needed again.
- */
-const pmrem = new THREE.PMREMGenerator(renderer);
-const equirect = studioEnvironmentTexture();
-scene.environment = pmrem.fromEquirectangular(equirect).texture;
-scene.environmentIntensity = 0.50;
-equirect.dispose();
-pmrem.dispose();
-
-// Fog matched to the bottom of the backdrop, so the ground plane dissolves into
-// it instead of ending at a visible edge. This is the infinite studio sweep
-// done in two lines. Near is set beyond the rig, so nothing on the instrument
-// is ever fogged.
-scene.fog = new THREE.Fog(PALETTE.skyBottom, 5, 12);
+const environment = buildEnvironment({ scene, renderer });
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
-camera.position.set(1.55, 1.18, 1.85);
+// Framed for the slab, which is a much smaller and far flatter object than the
+// case it replaced: 0.50 wide closed, 1.00 with the wings out, and 60 mm thick.
+// The old framing orbited a point 0.42 up, which is now well above the whole
+// instrument. Roughly 29 degrees of elevation is enough to see into the well
+// without flattening the silhouette.
+camera.position.set(0.62, 0.60, 0.88);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(0.05, 0.42, 0);
-controls.minDistance = 0.8;
-controls.maxDistance = 8;
+controls.target.set(0.02, 0.05, 0);
+controls.minDistance = 0.45;
+controls.maxDistance = MAX_ORBIT;   // was 4
 controls.maxPolarAngle = Math.PI * 0.495;
 
 // ---------------------------------------------------------------------------
@@ -130,12 +105,21 @@ key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.near = 0.5;
 key.shadow.camera.far = 12;
-key.shadow.camera.left = -2.2;
-key.shadow.camera.right = 2.2;
-key.shadow.camera.top = 2.2;
-key.shadow.camera.bottom = -2.2;
-key.shadow.bias = -0.0006;
-key.shadow.normalBias = 0.012;
+// Sized to the scene, not left oversized. The instrument plus the mascot span
+// about 1.4 units, so a +/-1.2 frustum spreads the 2048 map over the thing that
+// is actually casting — roughly a 3.4x gain in effective shadow resolution over
+// the +/-2.2 the old case needed.
+key.shadow.camera.left = -1.2;
+key.shadow.camera.right = 1.2;
+key.shadow.camera.top = 1.2;
+key.shadow.camera.bottom = -1.2;
+
+// Both biases scale with the world size of a shadow texel, and that just shrank
+// by the same 3.4x. Leaving normalBias at 0.012 would push the shadow 20% of
+// the slab's own thickness off its caster — the classic peter-panning detach,
+// and far more obvious on a 60 mm slab than it ever was on a 300 mm case.
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.005;
 scene.add(key);
 
 const fill = new THREE.DirectionalLight(0xd6e6ff, 0.45);
@@ -146,21 +130,6 @@ const rim = new THREE.DirectionalLight(0xffffff, 0.38);
 rim.position.set(-1.2, 1.8, -2.6);
 scene.add(rim);
 
-// ---------------------------------------------------------------------------
-// Ground
-// ---------------------------------------------------------------------------
-
-const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(14, 64),
-  new THREE.MeshStandardMaterial({
-    color: PALETTE.ground,
-    roughness: 0.95,
-    metalness: 0.0,
-  })
-);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
 
 // ---------------------------------------------------------------------------
 // The rig, its mechanism, the mascot, and the input layer
@@ -175,13 +144,18 @@ const rig = buildRig({
 });
 scene.add(rig.root);
 
-const mascot = buildMascot({ scale: 1.2 });
-mascot.root.position.set(0.86, 0, 0.24);
-mascot.root.rotation.y = -0.53; // turned between the pads and the camera
+// Scaled down with the instrument. At the old 1.2 he stood taller than the slab
+// is wide and read as the subject rather than the companion; 0.85 puts him at
+// about 320 mm beside a 500 mm controller, which is the proportion that makes
+// the slab the hero. Parked clear of the right wing's open span (x = 0.5).
+const mascot = buildMascot({ scale: 0.85 });
+mascot.root.position.set(0.70, 0, 0.14);
+mascot.root.rotation.y = -0.62; // turned between the pads and the camera
 scene.add(mascot.root);
 
 const hierarchy = initHierarchy({ rig });
 const interaction = initInteraction({ canvas, camera, controls, rig });
+const lighting = initLighting({ scene });
 
 // ---------------------------------------------------------------------------
 // Wiring: intent -> behaviour
@@ -216,16 +190,18 @@ bus.on('knob:change', ({ index, value }) => {
  * Power-on sequence.
  *
  * Knob positions are pushed here rather than at load because the audio nodes
- * they write into do not exist until the context is unlocked. The unfold is
- * delayed slightly so it begins after the overlay has faded rather than
- * underneath it.
+ * they write into do not exist until the context is unlocked. The slab starts
+ * shut and opens 350 ms later, delayed so the fold begins after the overlay has
+ * faded rather than underneath it.
  */
-bus.once('started', () => {
+bus.once('started', ({ ctx }) => {
+  lighting.attach(audio.getMasterFilter(), ctx);
+
   interaction.setKnob(KNOB_VOLUME, 0.8);
   interaction.setKnob(KNOB_FILTER, 1.0);
   for (let i = 0; i < 4; i++) interaction.setKnob(KNOB_LAYER_0 + i, 0.9);
 
-  setTimeout(() => hierarchy.unfold(), 350);
+  setTimeout(() => hierarchy.open(), 350);
 });
 
 // ---------------------------------------------------------------------------
@@ -260,12 +236,12 @@ function tick(timeMs) {
   const t = timeMs / 1000;
 
   tweens.update(timeMs);   // tween.js expects performance.now()-style ms
-  hierarchy.update();      // four scalars -> every joint transform
+  hierarchy.update();      // two scalars -> every joint transform
   audio.update();          // release scheduled events whose audio time has come
   rig.update(dt);          // pad press and rim glow decay
+  lighting.update(dt);     // spectrum -> band energies -> fixture intensities
   mascot.update(dt, t);    // idle, blink, and the arm swing from the same hits
   controls.update();
-  bus.emit('frame', { dt, t });
 
   renderer.render(scene, camera);
   updateStatus(dt);

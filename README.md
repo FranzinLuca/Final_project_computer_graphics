@@ -60,9 +60,9 @@ index.html        boot gate, import map, canvas
 - [x] Phase 1 — audio engine
 - [x] Phase 2 — rig geometry
 - [x] Phase 3 — interaction
-- [ ] Phase 4 — hierarchical unfold
-- [ ] Phase 5 — lighting
-- [ ] Phase 6 — environment and textures
+- [x] Phase 4 — hierarchical unfold
+- [x] Phase 5 — lighting
+- [x] Phase 6 — environment and textures
 - [ ] Phase 7 — presets and camera
 - [ ] Phase 8 — sound design
 - [ ] Phase 9 — polish

@@ -264,6 +264,76 @@ export function brushedMetalMaps(size = 512) {
   };
 }
 
+/**
+ * Polished concrete — the floor.
+ *
+ * Two frequencies summed rather than one blurred field, which is the first
+ * time this file has needed it. Concrete is genuinely two things at once: a
+ * fine aggregate speckle a few millimetres across, and a slow blotchiness from
+ * the pour and the sealer that runs over tens of centimetres. Blur white noise
+ * once and you get one or the other; add a lightly blurred field to a heavily
+ * blurred one and you get both, which is why a single-scale floor always reads
+ * as sandpaper or as fog and never as concrete.
+ *
+ * The fine field is weighted lower than the coarse one. At the tiling density
+ * this is used at, the fine detail is close to a texel per screen pixel and
+ * would alias into shimmer if it carried the contrast.
+ *
+ * The roughness range is the important number here and it is wide: 0.34 to
+ * 0.68. Sealed concrete is semi-gloss, so a spotlight raking across it leaves
+ * a long specular streak — which is most of what makes stage lighting read as
+ * stage lighting. Holding roughness constant would make that streak a clean
+ * airbrushed shape; letting it vary breaks the streak into the mottled sheen a
+ * real floor has. This is the one surface in the project where the roughness
+ * map matters more than the normal map.
+ */
+export function concreteMaps(size = 512) {
+  const fine = normalise(boxBlur(whiteNoise(size), size, 1, 1));
+  const coarse = normalise(boxBlur(whiteNoise(size), size, 12, 12));
+
+  const height = new Float32Array(size * size);
+  for (let i = 0; i < height.length; i++) {
+    height[i] = coarse[i] * 0.72 + fine[i] * 0.28;
+  }
+
+  const field = normalise(height);
+
+  return {
+    map: tintedTexture(field, size, 0xbcbcc4, 0xffffff),
+    // Low strength on purpose. A floor seen at a grazing angle exaggerates
+    // every normal it has, so a value that looks correct from overhead looks
+    // like gravel from the camera height this scene uses.
+    normalMap: normalMapFromHeight(field, size, 0.55),
+    roughnessMap: grayscaleTexture(field, size, 0.34, 0.68),
+  };
+}
+
+/**
+ * Matte painted wall — the cyclorama.
+ *
+ * Almost nothing, and that is the specification rather than laziness. A cyc is
+ * sprayed and rolled precisely so it has no readable detail: its whole job is
+ * to be a surface with no landmarks, so that light landing on it is the only
+ * thing the eye can see. Give it visible texture and it stops being a backdrop
+ * and starts being a wall.
+ *
+ * So: one very wide blur, a colour map spanning barely two percent, a normal
+ * map at a tenth of the strength any other family uses, and a narrow roughness
+ * band up at the matte end. What survives is a faint roller mottle that keeps
+ * the surface from banding into flat gradients — which is the actual failure
+ * mode of a perfectly smooth wall under a coloured spot, and one that no
+ * amount of tone mapping fixes.
+ */
+export function paintedWallMaps(size = 256) {
+  const field = normalise(boxBlur(whiteNoise(size), size, 18, 18));
+
+  return {
+    map: tintedTexture(field, size, 0xf6f6f6, 0xffffff),
+    normalMap: normalMapFromHeight(field, size, 0.10),
+    roughnessMap: grayscaleTexture(field, size, 0.86, 0.94),
+  };
+}
+
 /** Apply repeat + anisotropy to every map in a set, in place. */
 export function configureMaps(maps, repeatX, repeatY, anisotropy = 1) {
   for (const texture of Object.values(maps)) {
