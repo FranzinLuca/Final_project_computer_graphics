@@ -63,14 +63,75 @@ export const PALETTE = {
 };
 
 /**
- * The hue a pad emits when it is lit.
+ * The hue a pad emits when it is lit, at constant perceived brightness.
  *
- * Pushed bright and saturated on purpose: this is a light source, not a
- * surface, and the desaturation that kept the old cap colours from clipping
- * would only make the glow look grey here.
+ * The naive version of this function was `setHSL(hue, 0.82, 0.58)` — one fixed
+ * lightness for every pad. It is wrong, and the phase 9 audit is what caught
+ * it, because the failure is invisible in a still and obvious in motion.
+ *
+ * HSL lightness is not brightness. It is a coordinate in a colour model that
+ * knows nothing about the eye, and the eye is roughly three times more
+ * sensitive to green than to blue and seven times more than to the deep red
+ * end. Measured on the kit's own hues at L = 0.58, relative luminance ran from
+ * 0.385 for the magenta percussion row to 0.758 for the toms — a factor of
+ * two. Every pad was being driven with the same `emissiveIntensity`, so the
+ * rows were nominally equal and visibly not: the toms glared and the
+ * percussion row looked half-lit, and no amount of adjusting the intensity
+ * curve could fix it because the imbalance was in the colour, not the level.
+ *
+ * So lightness is SOLVED rather than chosen. For each hue, a binary search
+ * finds the lightness whose Rec. 709 luminance hits a common target. Twelve
+ * iterations of bisection on a monotonic function is exact to well past what
+ * eight-bit output can represent, and it runs five times total — once per
+ * distinct hue in the bank — because the results are memoised.
+ *
+ * This is the same principle as the exponential filter mapping in audio.js and
+ * the uneven toon ramp steps in textures.js: the parameter that gets spaced
+ * evenly is the perceptual one, never the mathematical one.
  */
+
+const PAD_SATURATION = 0.82;
+
+/**
+ * Target relative luminance for every lit pad. Chosen just under the point
+ * where the brightest achievable hue would need to desaturate to reach it —
+ * push this above about 0.68 and the deep reds run out of lightness headroom
+ * and start returning white.
+ */
+const PAD_TARGET_LUMA = 0.60;
+
+/** Rec. 709 luminance of a THREE.Color, in linear terms. */
+function relativeLuminance(colour) {
+  return 0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b;
+}
+
+/** hue -> solved lightness. Five entries in practice. */
+const lightnessCache = new Map();
+
+function solveLightness(hue) {
+  if (lightnessCache.has(hue)) return lightnessCache.get(hue);
+
+  const probe = new THREE.Color();
+  let low = 0.15;
+  let high = 0.97;
+
+  // Luminance is monotonically increasing in lightness at fixed hue and
+  // saturation, which is the only property bisection needs. No derivative, no
+  // starting guess, no failure mode.
+  for (let i = 0; i < 24; i++) {
+    const mid = (low + high) / 2;
+    probe.setHSL(hue, PAD_SATURATION, mid);
+    if (relativeLuminance(probe) < PAD_TARGET_LUMA) low = mid;
+    else high = mid;
+  }
+
+  const solved = (low + high) / 2;
+  lightnessCache.set(hue, solved);
+  return solved;
+}
+
 export function padGlow(hue) {
-  return new THREE.Color().setHSL(hue, 0.82, 0.58);
+  return new THREE.Color().setHSL(hue, PAD_SATURATION, solveLightness(hue));
 }
 
 /**

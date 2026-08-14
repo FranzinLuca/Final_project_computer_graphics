@@ -63,7 +63,7 @@ index.html        boot gate, import map, canvas
 - [x] Phase 4 — hierarchical unfold
 - [x] Phase 5 — lighting
 - [x] Phase 6 — environment and textures
-- [ ] Phase 7 — presets and camera
-- [ ] Phase 8 — sound design
-- [ ] Phase 9 — polish
+- [x] Phase 7 — presets and camera
+- [x] Phase 8 — sound design
+- [x] Phase 9 — polish
 - [ ] Phase 10 — document and deploy

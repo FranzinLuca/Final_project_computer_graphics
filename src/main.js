@@ -19,6 +19,9 @@ import { initHierarchy } from './hierarchy.js';
 import { initInteraction, KEY_LABELS } from './interaction.js';
 import { initLighting } from './lighting.js';
 import { buildEnvironment, MAX_ORBIT } from './environment.js';
+import { initCamera } from './camera.js';
+import { initUI } from './ui.js';
+import { initQuality } from './quality.js';
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -32,7 +35,6 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: 'high-performance',
 });
 
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -72,10 +74,11 @@ camera.position.set(0.62, 0.60, 0.88);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(0.02, 0.05, 0);
 controls.minDistance = 0.45;
-controls.maxDistance = MAX_ORBIT;   // was 4
+controls.maxDistance = MAX_ORBIT;
 controls.maxPolarAngle = Math.PI * 0.495;
+
+const cameraRig = initCamera({ camera, controls, maxOrbit: MAX_ORBIT });
 
 // ---------------------------------------------------------------------------
 // Lights (phase 5 replaces these with the analyser-driven set)
@@ -157,6 +160,17 @@ const hierarchy = initHierarchy({ rig });
 const interaction = initInteraction({ canvas, camera, controls, rig });
 const lighting = initLighting({ scene });
 
+// After the renderer, the key light and the lighting rig exist:
+const quality = initQuality({
+  renderer,
+  shadowLight: key,
+  onTierChange: (tier) => {
+    for (const f of lighting.fixtures) {
+      if (f.beam) f.beam.visible = tier.beams && f.beam.material.opacity > 0.004;
+    }
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Wiring: intent -> behaviour
 //
@@ -186,6 +200,8 @@ bus.on('knob:change', ({ index, value }) => {
   else audio.setLayerGain(index - KNOB_LAYER_0, value);
 });
 
+canvas.addEventListener('pointerdown', () => cameraRig.release(), true);
+
 /**
  * Power-on sequence.
  *
@@ -200,6 +216,9 @@ bus.once('started', ({ ctx }) => {
   interaction.setKnob(KNOB_VOLUME, 0.8);
   interaction.setKnob(KNOB_FILTER, 1.0);
   for (let i = 0; i < 4; i++) interaction.setKnob(KNOB_LAYER_0 + i, 0.9);
+
+  const ui = initUI({ audio, interaction, hierarchy, lighting, cameraRig });
+  Object.assign(window, { ui });
 
   setTimeout(() => hierarchy.open(), 350);
 });
@@ -241,9 +260,10 @@ function tick(timeMs) {
   rig.update(dt);          // pad press and rim glow decay
   lighting.update(dt);     // spectrum -> band energies -> fixture intensities
   mascot.update(dt, t);    // idle, blink, and the arm swing from the same hits
-  controls.update();
+  cameraRig.update();
 
   renderer.render(scene, camera);
+  quality.update(dt);
   updateStatus(dt);
 }
 
@@ -297,7 +317,8 @@ function updateStatus(dt) {
   const audioState = getContext()?.state ?? 'not started';
   const calls = renderer.info.render.calls;
   statusEl.textContent =
-    `${fps} fps · ${calls} draw calls · ${isWebGL2 ? 'WebGL2' : 'WebGL1'} · audio: ${audioState}`;
+  `${fps} fps · ${calls} draw calls · ${quality.tierName()} · ` +
+  `${isWebGL2 ? 'WebGL2' : 'WebGL1'} · audio: ${audioState}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,4 +328,5 @@ function updateStatus(dt) {
 Object.assign(window, {
   THREE, scene, camera, renderer, controls,
   bus, tweens, audio, rig, mascot, hierarchy, interaction,
+  lighting, environment, cameraRig,
 });
