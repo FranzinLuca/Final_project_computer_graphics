@@ -32,10 +32,16 @@ export const PALETTE = {
   accent: 0xffb257,     // knob indicators and small warm highlights
 
   // --- mascot --------------------------------------------------------------
-  mascotSkin: 0xf47a58,
-  mascotShade: 0xdc5f45,
-  mascotBelly: 0xffd3ae,
-  mascotEye: 0xfdfaf4,
+  //
+  // Warm amber against the cool backdrop, and dark hardware to break it up.
+  // A robot painted one colour reads as a toy; the eye needs the panel line
+  // between the painted shell and the machinery to believe it was assembled.
+  mascotBody: 0xf0a63c,
+  mascotShade: 0xcf8628,
+  mascotMetal: 0xaab3ca,
+  mascotDark: 0x3f4459,
+  mascotLens: 0x171b28,
+  mascotIris: 0x8fe3ff,   // resting eye glow; a hit repaints it to the pad hue
   stick: 0xecc9a0,
 };
 

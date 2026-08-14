@@ -1,76 +1,65 @@
 /**
- * mascot.js — Otto, the eight-armed drummer.
+ * mascot.js — Otto, the drum tech.
  *
- * An octopus because the joke writes itself for a drum machine: eight arms,
- * and he only ever uses two of them.
+ * A tracked service robot: boxy amber shell, two binocular eye barrels on a
+ * neck, two arms on sticks. The name works twice over now that he is a machine.
  *
  * Otto is not decoration bolted onto the scene. He is a second hierarchical
  * model with his own joint chain, and he is animated by the same mechanism the
- * pads are — the rig subscribes to 'pad:hit' and flashes an LED, and this file
+ * pads are — rig.js subscribes to 'pad:hit' and flashes a pad, and this file
  * subscribes to the identical event and swings an arm. Neither knows the other
  * exists, and neither knows whether the hit came from a mouse, a key or the
  * sequencer. That is the decoupling rule paying for itself a third time: a
- * whole character was added to the project without editing audio.js,
- * interaction.js or rig.js.
+ * whole animated character was added without editing audio.js, interaction.js
+ * or rig.js.
+ *
+ * WHY A ROBOT IS THE RIGHT MASCOT FOR THIS PROJECT
+ *
+ * A creature is spheres. A robot is rounded boxes and cylinders — which is
+ * exactly what geometry.js already generates, so the character is built from
+ * the same primitives, with the same fillets, as the instrument it stands next
+ * to. The art direction asked for smooth corners everywhere; a machine is the
+ * one kind of character where visible panel edges and hard-surface shapes are
+ * the point, so every fillet reads as a manufacturing decision rather than as
+ * a modelling shortcut.
  *
  * The chain, per arm:
  *
- *   ring point -> azimuth -> curl -> segment -> joint -> segment -> joint ->
- *   segment -> tip -> stick
+ *   body -> swing -> lift -> upper arm -> elbow -> forearm -> wrist -> stick
  *
- * The azimuth group exists purely so no Euler order has to be reasoned about.
- * Spinning a tentacle around the body and then bending it are two different
- * rotations about two different axes; composing them in one Euler triple means
- * depending on the order three.js multiplies them in, and getting that wrong
- * produces tentacles that bend sideways at the far side of the body. A group
- * per axis makes the composition explicit and the bug impossible.
+ * Swing and lift are separate groups on separate axes rather than one Euler
+ * triple. Composing two rotations in one Euler depends on the order three
+ * multiplies them in, and getting that wrong gives an arm that lifts sideways
+ * once it has been swung out. A group per axis makes the composition explicit
+ * and the bug impossible. The head does the same thing with yaw and pitch.
  */
 
 import * as THREE from 'three';
 import { bus } from './events.js';
 import { PALETTE } from './palette.js';
-import { PAD_INDEX } from './pads.js';
+import { PAD_BY_ID, PAD_INDEX } from './pads.js';
 import { toonRamp } from './textures.js';
-import { roundedCylinderGeometry } from './geometry.js';
+import { roundedBoxGeometry, roundedCylinderGeometry } from './geometry.js';
 
 // ---------------------------------------------------------------------------
 // Proportions
 //
-// Cartoon proportion is mostly one rule: make the head far too big. Otto's
-// mantle is wider than his whole arm span is long, which is what reads as
-// "character" rather than "animal".
+// Cartoon proportion is mostly one rule: make the head far too big. Otto's eye
+// barrels are each nearly half the width of his whole chassis, which is what
+// reads as "character" rather than "appliance".
 // ---------------------------------------------------------------------------
 
-const MANTLE = { rx: 0.125, ry: 0.135, rz: 0.1225, y: 0.205 };
-const RING = { radius: 0.088, y: 0.108 };
+const BODY = { w: 0.20, h: 0.19, d: 0.16, y: 0.145 };
+const TREAD = { w: 0.055, h: 0.075, d: 0.21, x: 0.105 };
+const EYE = { offset: 0.048, radius: 0.040, barrel: 0.055 };
 
-const SEGMENTS = [
-  { r: 0.030, ry: 0.036, mid: 0.032, end: 0.064 },
-  { r: 0.023, ry: 0.029, mid: 0.026, end: 0.052 },
-  { r: 0.016, ry: 0.020, mid: 0.019, end: 0.038 },
-];
-
-/**
- * Where each arm sits around the body, and how it rests.
- *
- * `curl` values are negative because a negative rotation about the azimuth
- * group's local X axis tilts the arm *outward*: the group's local Z points
- * radially away from the body, so -x rotation swings the downward-hanging arm
- * onto that radial direction.
- *
- * The two front arms rest past 90 degrees, which is what holds them up in the
- * air with the sticks ready. The other six splay just enough to carry him.
- */
+/** Where each arm hangs, and how it rests with the sticks up and ready. */
 const ARMS = [
-  { azimuth: -0.40, curl: -1.90, joints: [-0.35, 0.40], stick: true },
-  { azimuth: 0.40, curl: -1.90, joints: [-0.35, 0.40], stick: true },
-  { azimuth: -1.15, curl: -0.60, joints: [-0.35, -0.45], stick: false },
-  { azimuth: 1.15, curl: -0.60, joints: [-0.35, -0.45], stick: false },
-  { azimuth: -1.95, curl: -0.55, joints: [-0.35, -0.45], stick: false },
-  { azimuth: 1.95, curl: -0.55, joints: [-0.35, -0.45], stick: false },
-  { azimuth: -2.75, curl: -0.50, joints: [-0.35, -0.45], stick: false },
-  { azimuth: 2.75, curl: -0.50, joints: [-0.35, -0.45], stick: false },
+  { side: -1, swing: -0.25 },
+  { side: 1, swing: 0.25 },
 ];
+
+const REST = { lift: -1.50, elbow: 0.60, wrist: 0.30 };
 
 // ---------------------------------------------------------------------------
 
@@ -85,10 +74,10 @@ export function buildMascot({ scale = 1.2 } = {}) {
    *
    * MeshToonMaterial rather than MeshStandardMaterial, and only here. The rig
    * is a manufactured object and gets physically based shading; Otto is a
-   * drawn character and gets a banded ramp. Using two shading models in one
-   * scene is a deliberate art-direction choice, not an inconsistency — it is
-   * the same separation an animated film makes between its sets and its cast,
-   * and it is what stops him reading as another moulded plastic part.
+   * drawn character and gets a banded ramp. Two shading models in one scene is
+   * a deliberate art-direction choice, not an inconsistency — it is the same
+   * separation an animated film makes between its sets and its cast, and it is
+   * what stops him reading as another moulded plastic part.
    *
    * It also means the toon ramp is a genuinely different kind of texture from
    * the colour, normal and roughness maps the rig uses: this one is sampled as
@@ -96,27 +85,60 @@ export function buildMascot({ scale = 1.2 } = {}) {
    */
   const gradientMap = toonRamp();
 
-  function toon(colour) {
-    return new THREE.MeshToonMaterial({ color: colour, gradientMap });
-  }
+  const toon = (colour, extra = {}) =>
+    new THREE.MeshToonMaterial({ color: colour, gradientMap, ...extra });
 
   const materials = {
-    skin: toon(PALETTE.mascotSkin),
+    shell: toon(PALETTE.mascotBody),
     shade: toon(PALETTE.mascotShade),
-    belly: toon(PALETTE.mascotBelly),
-    eye: toon(PALETTE.mascotEye),
-    ink: toon(PALETTE.ink),
+    metal: toon(PALETTE.mascotMetal),
+    dark: toon(PALETTE.mascotDark),
+    lens: toon(PALETTE.mascotLens),
     stick: toon(PALETTE.stick),
+    // One iris material for both eyes, so they light as a pair — and so a pad
+    // hit repaints exactly one thing.
+    iris: toon(PALETTE.mascotLens, {
+      emissive: new THREE.Color(PALETTE.mascotIris),
+      emissiveIntensity: 1.0,
+    }),
   };
 
-  // One unit sphere, scaled per use. Every soft form on the character is an
-  // ellipsoid, so sixteen-odd geometries collapse into one buffer that stays
-  // resident and is drawn with different matrices.
-  const ball = new THREE.SphereGeometry(1, 24, 16);
+  // --- shared geometry -----------------------------------------------------
+  //
+  // Built once and drawn with different matrices. A cylinder from the lathe
+  // stands on its own origin pointing up, so it is translated onto its centre
+  // and turned onto the axis it is wanted on, once, at build time rather than
+  // per instance.
 
-  function blob(material, sx, sy, sz, x = 0, y = 0, z = 0) {
-    const mesh = new THREE.Mesh(ball, material);
-    mesh.scale.set(sx, sy, sz);
+  function axialCylinder(radius, length, corner, axis) {
+    const geo = roundedCylinderGeometry(radius, length, corner, 24, 3);
+    geo.translate(0, -length / 2, 0);
+    if (axis === 'z') geo.rotateX(Math.PI / 2);
+    else if (axis === 'x') geo.rotateZ(-Math.PI / 2);
+    return geo;
+  }
+
+  const GEO = {
+    body: roundedBoxGeometry(BODY.w, BODY.h, BODY.d, 0.028, 3),
+    hatch: roundedBoxGeometry(0.115, 0.075, 0.012, 0.006, 3),
+    tread: roundedBoxGeometry(TREAD.w, TREAD.h, TREAD.d, 0.030, 3),
+    wheel: axialCylinder(0.024, 0.014, 0.006, 'x'),
+    neck: roundedBoxGeometry(0.045, 0.055, 0.045, 0.018, 3),
+    bridge: roundedBoxGeometry(0.075, 0.028, 0.030, 0.013, 3),
+    // The lathe rounds only its top rim, so after turning onto +Z the domed
+    // end faces forward and the flat end sits inside the housing — which is
+    // the right way round for both a lens and a wheel.
+    barrel: axialCylinder(EYE.radius, EYE.barrel, 0.014, 'z'),
+    lens: axialCylinder(EYE.radius * 0.82, 0.012, 0.005, 'z'),
+    iris: axialCylinder(EYE.radius * 0.42, 0.010, 0.004, 'z'),
+    upperArm: roundedBoxGeometry(0.024, 0.075, 0.024, 0.011, 3),
+    forearm: roundedBoxGeometry(0.021, 0.065, 0.021, 0.010, 3),
+    hand: roundedBoxGeometry(0.030, 0.022, 0.026, 0.009, 3),
+    stick: roundedCylinderGeometry(0.0072, 0.115, 0.0072, 16, 3),
+  };
+
+  function part(geometry, material, x = 0, y = 0, z = 0) {
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -134,127 +156,151 @@ export function buildMascot({ scale = 1.2 } = {}) {
   const bob = new THREE.Group();        // breathing, and the squash on a hit
   sway.add(bob);
 
-  // --- body ----------------------------------------------------------------
+  // --- chassis and tracks --------------------------------------------------
 
-  bob.add(blob(materials.skin, MANTLE.rx, MANTLE.ry, MANTLE.rz, 0, MANTLE.y, 0));
+  const body = part(GEO.body, materials.shell, 0, BODY.y, 0);
+  bob.add(body);
 
-  // The flared hood where the mantle meets the arms. A darker tone here does
-  // the work an ambient occlusion pass would: it reads as the shadow under an
-  // overhang and stops the arms looking glued on.
-  bob.add(blob(materials.shade, 0.145, 0.058, 0.145, 0, 0.128, 0));
+  // A recessed panel on the chest. It costs one mesh and it is most of what
+  // makes the shell read as a fabricated housing rather than a painted block.
+  bob.add(part(GEO.hatch, materials.shade, 0, BODY.y - 0.005, BODY.d / 2 - 0.002));
 
-  // Mouth: barely there. A large mouth fixes an expression permanently; a
-  // small one lets the eyes carry it.
-  bob.add(blob(materials.ink, 0.024, 0.010, 0.010, 0, 0.168, 0.112));
-
-  // --- eyes ----------------------------------------------------------------
-
-  const eyes = [];
+  const wheelSets = [];
 
   for (const side of [-1, 1]) {
-    // The blink group scales in Y. Its children — the pupil and its highlight
-    // — are inside it, so they squash with the lid instead of floating in
-    // front of a closed eye, which is the usual giveaway of a faked blink.
-    const eye = new THREE.Group();
-    eye.position.set(side * 0.055, 0.235, 0.092);
-    bob.add(eye);
+    bob.add(part(GEO.tread, materials.dark, side * TREAD.x, TREAD.h / 2, 0));
 
-    eye.add(blob(materials.eye, 0.040, 0.040, 0.032));
-
-    const pupil = new THREE.Group();
-    pupil.position.z = 0.024;
-    eye.add(pupil);
-
-    pupil.add(blob(materials.ink, 0.019, 0.019, 0.012));
-    pupil.add(blob(materials.eye, 0.007, 0.007, 0.005, side * 0.007, 0.009, 0.010));
-
-    eyes.push({ group: eye, pupil });
+    // Road wheels, on the outer face where they can be seen. They counter-
+    // rotate a little when he rocks, which is the cheapest possible way to
+    // suggest the tracks are load-bearing rather than painted on.
+    const wheels = [];
+    for (const z of [-0.068, 0, 0.068]) {
+      const wheel = part(
+        GEO.wheel,
+        materials.metal,
+        side * (TREAD.x + TREAD.w / 2 - 0.004),
+        TREAD.h / 2,
+        z
+      );
+      bob.add(wheel);
+      wheels.push(wheel);
+    }
+    wheelSets.push(wheels);
   }
+
+  // --- neck and head -------------------------------------------------------
+
+  const neck = new THREE.Group();
+  neck.position.set(0, BODY.y + BODY.h / 2 - 0.005, -0.01);
+  bob.add(neck);
+  neck.add(part(GEO.neck, materials.metal, 0, 0.0275, 0));
+
+  const headYaw = new THREE.Group();
+  headYaw.position.y = 0.055;
+  neck.add(headYaw);
+
+  const headPitch = new THREE.Group();
+  headYaw.add(headPitch);
+
+  headPitch.add(part(GEO.bridge, materials.dark, 0, 0, 0));
+
+  /**
+   * The eye barrels.
+   *
+   * These are the whole performance. A binocular head has one expressive
+   * degree of freedom that a face does not: the two barrels can tilt against
+   * each other, and that single angle reads as eyebrows. Tilting the outer
+   * edges up is surprise, down is a scowl — and it is one number per eye.
+   */
+  const eyes = [-1, 1].map((side) => {
+    const group = new THREE.Group();
+    group.position.set(side * EYE.offset, 0, 0.004);
+    headPitch.add(group);
+
+    group.add(part(GEO.barrel, materials.shell, 0, 0, -0.026));
+    group.add(part(GEO.lens, materials.lens, 0, 0, 0.030));
+
+    // The iris sits in its own group so a blink can squash it without
+    // squashing the housing it is set into.
+    const iris = new THREE.Group();
+    iris.position.z = 0.034;
+    group.add(iris);
+    iris.add(part(GEO.iris, materials.iris));
+
+    return { group, iris, side };
+  });
 
   // --- arms ----------------------------------------------------------------
 
-  const stickGeometry = roundedCylinderGeometry(0.0072, 0.115, 0.0072, 16, 3);
+  const arms = ARMS.map(({ side, swing }) => {
+    // Swing carries the arm away from the body; lift swings it fore and aft.
+    // Two groups, two axes, no Euler order to get wrong.
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * (BODY.w / 2 - 0.004), BODY.y + 0.045, 0.01);
+    shoulder.rotation.z = swing;
+    bob.add(shoulder);
 
-  const arms = ARMS.map((spec) => {
-    const azimuth = new THREE.Group();
-    azimuth.rotation.y = spec.azimuth;
-    azimuth.position.set(
-      Math.sin(spec.azimuth) * RING.radius,
-      RING.y,
-      Math.cos(spec.azimuth) * RING.radius
-    );
-    bob.add(azimuth);
+    const lift = new THREE.Group();
+    lift.rotation.x = REST.lift;
+    shoulder.add(lift);
+    lift.add(part(GEO.upperArm, materials.metal, 0, -0.0375, 0));
 
-    const curl = new THREE.Group();
-    curl.rotation.x = spec.curl;
-    azimuth.add(curl);
+    const elbow = new THREE.Group();
+    elbow.position.y = -0.075;
+    elbow.rotation.x = REST.elbow;
+    lift.add(elbow);
+    elbow.add(part(GEO.forearm, materials.metal, 0, -0.0325, 0));
 
-    // Walk down the chain, hanging a segment off each joint and creating the
-    // next joint at the far end of it.
-    let parent = curl;
-    const joints = [];
+    const wrist = new THREE.Group();
+    wrist.position.y = -0.065;
+    wrist.rotation.x = REST.wrist;
+    elbow.add(wrist);
+    wrist.add(part(GEO.hand, materials.dark, 0, -0.011, 0));
 
-    SEGMENTS.forEach((segment, i) => {
-      parent.add(blob(
-        materials.skin,
-        segment.r, segment.ry, segment.r,
-        0, -segment.mid, 0
-      ));
+    const stick = part(GEO.stick, materials.stick, 0, -0.016, 0);
+    // The lathe builds upward from its own origin, so most of a half turn
+    // about X points the stick down out of the hand and angles it the way a
+    // held stick actually sits.
+    stick.rotation.x = Math.PI * 0.86;
+    wrist.add(stick);
 
-      const next = new THREE.Group();
-      next.position.y = -segment.end;
-      if (i < SEGMENTS.length - 1) next.rotation.x = spec.joints[i];
-      parent.add(next);
-
-      joints.push(next);
-      parent = next;
-    });
-
-    if (spec.stick) {
-      const stick = new THREE.Mesh(stickGeometry, materials.stick);
-      // The lathe builds upward from its own origin, so a half turn about X
-      // points it down out of the tentacle tip; the extra tilt angles it the
-      // way a held stick actually sits.
-      stick.rotation.x = Math.PI * 0.86;
-      stick.castShadow = true;
-      parent.add(stick);
-    }
-
-    return {
-      curl,
-      elbow: joints[0],
-      wrist: joints[1],
-      rest: { curl: spec.curl, elbow: spec.joints[0], wrist: spec.joints[1] },
-      phase: spec.azimuth * 1.7,
-      holdsStick: spec.stick,
-      strike: 0,
-    };
+    return { shoulder, lift, elbow, wrist, side, strike: 0 };
   });
-
-  const stickArms = arms.filter((arm) => arm.holdsStick);
 
   // -----------------------------------------------------------------------
   // Reacting to hits
   // -----------------------------------------------------------------------
 
   let nextArm = 0;
-  const pupilTarget = new THREE.Vector2(0, 0);
+  const lookTarget = new THREE.Vector2(0, 0);
+  const irisColour = new THREE.Color(PALETTE.mascotIris);
+  const irisTarget = new THREE.Color(PALETTE.mascotIris);
+  let flash = 0;
 
   bus.on('pad:hit', ({ padId, velocity = 1 }) => {
     // Alternate hands. A drummer who strikes everything with the same arm
-    // reads as a machine, which is the one thing a mascot must not read as.
-    const arm = stickArms[nextArm % stickArms.length];
+    // reads as a machine, which is the one thing this machine must not do.
+    const arm = arms[nextArm % arms.length];
     nextArm += 1;
     if (arm) arm.strike = Math.max(arm.strike, velocity);
 
-    // Glance at the pad that fired. The grid is four wide and Otto stands off
-    // to one side, so this is a suggestion of attention rather than a real
-    // look-at — which is all it needs to be at this size on screen.
+    flash = Math.max(flash, velocity);
+
+    // The eyes take the colour of the pad that fired. The hue is already
+    // carried by the pad definition and already drives the rim glow on the
+    // instrument, so the character and the hardware light up in agreement
+    // without either of them being told about the other.
+    const pad = PAD_BY_ID.get(padId);
+    if (pad) irisTarget.setHSL(pad.hue, 0.75, 0.62);
+
+    // Glance towards the pad that fired. He stands off to one side, so this is
+    // a suggestion of attention rather than a real look-at, which is all it
+    // needs to be at this size on screen.
     const index = PAD_INDEX.get(padId);
     if (index !== undefined) {
-      pupilTarget.set(
-        ((index % 4) - 1.5) * 0.0048,
-        -(Math.floor(index / 4) - 1.5) * 0.0034
+      lookTarget.set(
+        ((index % 4) - 1.5) * 0.10,
+        -(Math.floor(index / 4) - 1.5) * 0.06
       );
     }
   });
@@ -282,35 +328,37 @@ export function buildMascot({ scale = 1.2 } = {}) {
       if (arm.strike < 0.001) arm.strike = 0;
       impulse = Math.max(impulse, arm.strike);
     }
+    flash *= Math.exp(-dt * 6);
 
-    // --- body ------------------------------------------------------------
-    sway.rotation.z = Math.sin(t * 0.9) * 0.035;
-    bob.position.y = Math.sin(t * 2.1) * 0.010 - impulse * 0.022;
+    // --- chassis ---------------------------------------------------------
+    sway.rotation.z = Math.sin(t * 0.9) * 0.030;
+    bob.position.y = Math.sin(t * 2.1) * 0.006 - impulse * 0.020;
 
     // Squash and stretch, conserving rough volume: what is lost in height is
-    // returned in width. Without the widening a squash just looks like the
-    // character shrank.
-    bob.scale.set(1 + impulse * 0.06, 1 - impulse * 0.09, 1 + impulse * 0.06);
+    // returned in width. Without the widening a squash reads as the character
+    // shrinking rather than absorbing an impact.
+    bob.scale.set(1 + impulse * 0.05, 1 - impulse * 0.075, 1 + impulse * 0.05);
 
-    // --- arms ------------------------------------------------------------
-    for (const arm of arms) {
-      const wave = Math.sin(t * 1.7 + arm.phase);
-
-      if (arm.holdsStick) {
-        // strike = 1 at the instant of the hit, so the arm is at the bottom
-        // of its swing exactly when the sound lands and rebounds afterwards.
-        // Animating the approach instead would need the strike known in
-        // advance, which for a live hit it never is.
-        arm.curl.rotation.x = arm.rest.curl + arm.strike * 0.85 + wave * 0.04;
-        arm.elbow.rotation.x = arm.rest.elbow + arm.strike * 0.55;
-        arm.wrist.rotation.x = arm.rest.wrist - arm.strike * 0.30;
-      } else {
-        arm.curl.rotation.x = arm.rest.curl + wave * 0.10;
-        arm.elbow.rotation.x = arm.rest.elbow + Math.sin(t * 1.7 + arm.phase + 0.7) * 0.14;
-      }
+    // Tracks rock back under the recoil.
+    for (const wheels of wheelSets) {
+      for (const wheel of wheels) wheel.rotation.x = -impulse * 0.9;
     }
 
-    // --- eyes ------------------------------------------------------------
+    // --- head ------------------------------------------------------------
+    // Drift rather than snap. A head that teleports to a new angle reads as a
+    // glitch; one that takes a few frames reads as a glance.
+    const ease = Math.min(1, dt * 6);
+    headYaw.rotation.y += (lookTarget.x - headYaw.rotation.y) * ease;
+    headPitch.rotation.x +=
+      (lookTarget.y + 0.06 - impulse * 0.16 - headPitch.rotation.x) * ease;
+
+    // Brows: outer edges lift with the impact, and breathe when idle.
+    for (const eye of eyes) {
+      const idle = Math.sin(t * 1.6 + eye.side) * 0.02;
+      eye.group.rotation.z = eye.side * (0.10 + impulse * 0.22) + idle;
+    }
+
+    // --- blink -----------------------------------------------------------
     blinkCountdown -= dt;
     if (blinkCountdown <= 0 && blinking <= 0) {
       blinking = BLINK_DURATION;
@@ -325,13 +373,14 @@ export function buildMascot({ scale = 1.2 } = {}) {
       openness = Math.max(0.08, Math.abs(Math.cos(Math.PI * phase)));
     }
 
-    for (const eye of eyes) {
-      eye.group.scale.y = openness;
-      // Drift rather than snap. A pupil that teleports to a new target reads
-      // as a glitch; one that takes a few frames reads as a glance.
-      eye.pupil.position.x += (pupilTarget.x - eye.pupil.position.x) * Math.min(1, dt * 8);
-      eye.pupil.position.y += (pupilTarget.y - eye.pupil.position.y) * Math.min(1, dt * 8);
-    }
+    for (const eye of eyes) eye.iris.scale.y = openness;
+
+    // --- eye colour ------------------------------------------------------
+    // Snap towards the struck pad's hue and drift back, so a fast pattern
+    // leaves the eyes strobing through the kit's colours.
+    irisColour.lerp(irisTarget, Math.min(1, dt * 7));
+    materials.iris.emissive.copy(irisColour);
+    materials.iris.emissiveIntensity = 0.85 + flash * 2.2;
   }
 
   return { root, update, materials };
