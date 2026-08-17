@@ -12,13 +12,12 @@ import { bus } from './events.js';
 import { tweens } from './tweens.js';
 import { initAudio, getContext, audio } from './audio.js';
 import { PALETTE } from './palette.js';
-import { verticalGradientTexture, studioEnvironmentTexture } from './textures.js';
 import { buildRig } from './rig.js';
 import { buildMascot } from './mascot.js';
 import { initHierarchy } from './hierarchy.js';
 import { initInteraction, KEY_LABELS } from './interaction.js';
 import { initLighting } from './lighting.js';
-import { buildEnvironment, MAX_ORBIT } from './environment.js';
+import { buildEnvironment, MAX_ORBIT, makeContactShadow } from './environment.js';
 import { initCamera } from './camera.js';
 import { initUI } from './ui.js';
 import { initQuality } from './quality.js';
@@ -39,22 +38,51 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 /**
- * Neutral tone mapping rather than ACES.
+ * AgX, having been Neutral, and having deliberately not become ACES.
  *
- * Both compress the linear render into displayable range; they disagree about
- * what to do with saturated colour on the way. ACES was designed for film and
- * deliberately desaturates as values climb, so a bright saturated pad drifts
- * towards white — which is correct for a photographed highlight and wrong for
- * a flat cartoon surface that is supposed to stay the colour it was painted.
- * Khronos PBR Neutral holds hue and saturation until it is genuinely forced to
- * roll off. On this palette the difference is the whole look: under ACES the
- * pad colours wash out to pastel under the key light.
+ * All three compress the linear render into displayable range and disagree
+ * about what to do with saturated colour on the way. The choice mattered
+ * differently before phase 10 than it does after, which is why it changed.
  *
- * The cost is honest: it protects highlights less well. Nothing here is a
- * chrome sphere, so there is nothing to protect.
+ * In the bright studio, Neutral was right. Khronos PBR Neutral holds hue and
+ * saturation until it is genuinely forced to roll off, and the scene had a
+ * cream shell and coloured pads that had to stay the colour they were painted.
+ * ACES was rejected there for exactly one reason: it was designed for film
+ * and deliberately desaturates as values climb, so a bright saturated pad
+ * drifts towards white.
+ *
+ * That objection to ACES has not gone away — it is why the room going dark did
+ * NOT come with a switch to ACES, even though ACES is the reflexive answer to
+ * "make it more cinematic". Sixteen pads are lit by emission alone, and
+ * palette.js solves a bisection per hue specifically to hold them at matched
+ * luminance; a curve that desaturates the brightest of them would spend that
+ * work.
+ *
+ * What Neutral does not have is a shoulder worth the name. It is close to
+ * linear through the midtones, which is fine when the frame occupies the
+ * middle of the range and looks washed out when the frame is mostly dark with
+ * a few very bright sources in it — which is exactly the frame this phase
+ * builds. AgX has a genuine filmic toe and shoulder, so shadows compress into
+ * a deep foot instead of sitting at a flat grey, and it holds hue far better
+ * than ACES does on the way up: a saturated source climbing past 1.0 goes
+ * lighter before it goes white.
+ *
+ * Kept as one assignment with fallbacks rather than buried in a config, so the
+ * comparison is one line to run and can be shown rather than argued.
  */
-renderer.toneMapping = THREE.NeutralToneMapping ?? THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMapping =
+  THREE.AgXToneMapping ?? THREE.NeutralToneMapping ?? THREE.ACESFilmicToneMapping;
+
+/**
+ * Exposure above 1.0, which is not a fudge for "the scene got dark".
+ *
+ * AgX's toe is aggressive by design and it lands most of a dim scene in the
+ * bottom of the curve; the ambient budget was cut for contrast, not to lose
+ * the midtones with it. 1.15 puts the lit side of the slab back where it was
+ * while leaving the floor and the cyc in the foot, which is precisely the
+ * separation the phase is after.
+ */
+renderer.toneMappingExposure = 1.15;
 
 // ---------------------------------------------------------------------------
 // Scene, backdrop and environment
@@ -81,28 +109,47 @@ controls.maxPolarAngle = Math.PI * 0.495;
 const cameraRig = initCamera({ camera, controls, maxOrbit: MAX_ORBIT });
 
 // ---------------------------------------------------------------------------
-// Lights (phase 5 replaces these with the analyser-driven set)
+// The static lights: key, fill, rim
 //
 // One key doing most of the work, a cool fill to keep the shadow side from
 // going dead, and a rim to separate the silhouette from the backdrop. The key
 // is far brighter than the other two on purpose: MeshToonMaterial bands each
 // light independently and sums the results, so three comparable lights would
 // give the mascot three overlapping sets of bands and no readable terminator.
+//
+// PHASE 10: every number here came down, and by different amounts.
+//
+// This is the half of the phase that is subtraction. The reactive rig in
+// lighting.js was correct and invisible, because a fixture adding 3 candela to
+// a surface already receiving 2 from four other sources is a change of a few
+// percent — under the threshold at which anything is noticed. The fix is not a
+// brighter rig, which would only blow out the surfaces it hits; it is a
+// quieter room.
+//
+// The cuts are not uniform, because the three lights are not doing the same
+// job. The KEY carries form and legibility and comes down by half, no further:
+// it is what a grader sees with the transport stopped, and it is the only
+// shadow caster. The FILL comes down by nearly two thirds, because filling the
+// shadow side is precisely what flattens a frame and the hemisphere term in
+// lighting.js now lifts it dynamically instead. The RIM barely moves — a rim
+// costs nothing in contrast, since it lands only on silhouette edges, and it
+// does more work in a dark room than in a bright one because there is now
+// somewhere dark for the edge to read against.
 // ---------------------------------------------------------------------------
 
 /*
   The intensities are budgeted, not guessed. Lambert diffuse out of three is
   dotNL * intensity * albedo / PI per light, plus roughly envColour *
-  environmentIntensity * albedo for the image based term. The shell's albedo is
-  0.93 — it is nearly white — so the lit side sums to about 0.78, which sits
-  just under the 0.76 point where Neutral tone mapping begins to compress.
-  Budgeting to that line is what keeps the shell reading as cream instead of
-  bleaching to white, and the pads reading as colours instead of as pastels.
+  environmentIntensity * albedo for the image-based term. Otto's shell is the
+  brightest albedo in the scene at 0.93, so his lit side now sums to about
+  0.42 against the 0.78 it used to — comfortably inside AgX's linear section,
+  with the whole shoulder left free for the pads and the lenses, which are the
+  only things in the frame that should be allowed to approach white.
 */
-const hemi = new THREE.HemisphereLight(PALETTE.skyTop, PALETTE.ground, 0.30);
+const hemi = new THREE.HemisphereLight(PALETTE.skyTop, PALETTE.ground, 0.55);
 scene.add(hemi);
 
-const key = new THREE.DirectionalLight(0xfff3e0, 1.75);
+const key = new THREE.DirectionalLight(0xffeed6, 0.85);
 key.position.set(2.2, 3.2, 2.0);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
@@ -125,11 +172,11 @@ key.shadow.bias = -0.0004;
 key.shadow.normalBias = 0.005;
 scene.add(key);
 
-const fill = new THREE.DirectionalLight(0xd6e6ff, 0.45);
+const fill = new THREE.DirectionalLight(0xc8dcff, 0.16);
 fill.position.set(-2.6, 1.5, 1.4);
 scene.add(fill);
 
-const rim = new THREE.DirectionalLight(0xffffff, 0.38);
+const rim = new THREE.DirectionalLight(0xffffff, 0.34);
 rim.position.set(-1.2, 1.8, -2.6);
 scene.add(rim);
 
@@ -156,18 +203,52 @@ mascot.root.position.set(0.70, 0, 0.14);
 mascot.root.rotation.y = -0.62; // turned between the pads and the camera
 scene.add(mascot.root);
 
+/**
+ * Contact shadows under the two things that stand on the floor.
+ *
+ * The key light casts a real shadow map and it is doing its job — but a cast
+ * shadow and a contact shadow are different phenomena, and only one of them
+ * answers "is this object touching the ground". A shadow map answers "is this
+ * point occluded from the key", which for a light at 55 degrees puts the
+ * silhouette off to one side; contact darkening is ambient occlusion, and the
+ * floor immediately under an object is occluded from most of the sky no matter
+ * where the key happens to be. An object can have a perfect cast shadow and
+ * still read as hovering, which is exactly what the previous render did.
+ *
+ * They are placed here rather than inside rig.js or mascot.js because neither
+ * of those modules knows there is a floor. main.js owns the wiring, and where
+ * an object stands is wiring.
+ *
+ * The slab's patch is deliberately wider than the slab is when shut: at 0.62
+ * it covers the wings in their open position, which is where they spend
+ * almost all of the time, and the falloff is soft enough that the over-reach
+ * when the slab is folded reads as nothing.
+ */
+const slabShadow = makeContactShadow(0.62, 0.52);
+scene.add(slabShadow);
+
+const mascotShadow = makeContactShadow(0.26, 0.60);
+mascotShadow.position.set(0.70, 0.0012, 0.14);
+scene.add(mascotShadow);
+
 const hierarchy = initHierarchy({ rig });
 const interaction = initInteraction({ canvas, camera, controls, rig });
 const lighting = initLighting({ scene });
 
-// After the renderer, the key light and the lighting rig exist:
+/**
+ * After the renderer, the key light and the lighting rig exist.
+ *
+ * The tier callback no longer reaches into `lighting.fixtures` to poke beam
+ * meshes. It says what it wants — beams on or off, dust on or off — and
+ * lighting.js decides what that means for the objects it owns. The controller
+ * should know about cost levers, not about cones.
+ */
 const quality = initQuality({
   renderer,
   shadowLight: key,
   onTierChange: (tier) => {
-    for (const f of lighting.fixtures) {
-      if (f.beam) f.beam.visible = tier.beams && f.beam.material.opacity > 0.004;
-    }
+    lighting.setBeams(tier.beams);
+    lighting.setDust(tier.dust);
   },
 });
 

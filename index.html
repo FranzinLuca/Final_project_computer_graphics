@@ -18,7 +18,12 @@
 
 <style>
   /*
-    The overlay palette is the authored scene palette, matching src/palette.js.
+    The overlay palette is the authored scene palette, matching src/palette.js —
+    now the dark studio one. The card went dark with it, which is not only
+    consistency: a cream card fading out to reveal a near-black stage is a
+    brightness step of about eight to one, and the eye takes a second to
+    adapt across it. Matching the two means the reveal is a dissolve rather
+    than a flash.
 
     It is worth being precise about "matching": these are the values the
     backdrop is authored as, not the values it renders as. three draws the
@@ -30,13 +35,13 @@
     a bug that is not there.
   */
   :root {
-    --sky-top:    #a2aed0;
-    --sky-bottom: #59648a;
+    --sky-top:    #2e3450;
+    --sky-bottom: #0f1220;
 
-    --shell:      #f6f1e7;
-    --shell-deep: #e4ddcd;
-    --ink:        #2f3348;
-    --dim:        #6d7288;
+    --shell:      #232839;
+    --shell-deep: #1a1e2c;
+    --ink:        #e8ebf5;
+    --dim:        #9aa3ba;
     --coral:      #f47a58;
     --coral-deep: #dc5f45;
 
@@ -84,10 +89,16 @@
     */
     border-radius: 28px;
     text-align: center;
+    /*
+      The inset highlight is now a rim light rather than a sheen. On a light
+      card it read as gloss on plastic; on a dark one at the same opacity it
+      reads as a bright edge, which is the same cue the geometry's fillets get
+      from the rim light in the scene.
+    */
     box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.7) inset,
-      0 18px 40px -12px rgba(28, 32, 52, 0.45),
-      0 2px 6px rgba(28, 32, 52, 0.16);
+      0 1px 0 rgba(255, 255, 255, 0.10) inset,
+      0 24px 50px -14px rgba(0, 0, 0, 0.70),
+      0 2px 6px rgba(0, 0, 0, 0.35);
   }
 
   /* The pad palette, as five dots. Says "this is a colourful thing" before the
@@ -189,7 +200,7 @@
     <div class="card">
       <div class="swatches"><i></i><i></i><i></i><i></i><i></i></div>
       <h1 class="title">Drum Rig</h1>
-      <p class="subtitle">A 16-pad sequencer in a folding case.<br>Otto is on sticks.</p>
+      <p class="subtitle">A 16-pad sequencer in a tri-fold slab.<br>Otto is on sticks.</p>
       <button id="start" type="button">Power on</button>
       <p class="caption">Audio starts on your first click — browsers keep it muted until then.</p>
       <p class="legend">Interactive Graphics · Sapienza</p>

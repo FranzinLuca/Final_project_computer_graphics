@@ -101,9 +101,11 @@ export const SHOTS = [
   {
     name: 'Room',
     // The plan called for three. This fourth costs four numbers and is the
-    // only view that shows the truss, the fixtures and the cyclorama together
-    // — which is to say, the only view that shows phases 5 and 6 at all.
-    description: 'Pulled back to the truss and the cyc.',
+    // only view that shows the speaker stacks, the beams and the cyclorama
+    // together — which is to say, the only view that shows phases 5, 6 and 10
+    // at all. It earns its place twice over now that the stacks are what
+    // frames the instrument: the wide shot is the one that reads as a stage.
+    description: 'Pulled back to the stacks and the cyc.',
     radius: 2.45,
     phi: 1.02,
     theta: 0.78,

@@ -77,13 +77,21 @@
  * and costs the square of the difference.
  */
 const TIERS = [
-  { name: 'High',    pixelRatio: 2.00, shadowMap: 2048, beams: true,  shadows: true },
-  { name: 'High -',  pixelRatio: 1.75, shadowMap: 2048, beams: true,  shadows: true },
-  { name: 'Medium',  pixelRatio: 1.50, shadowMap: 1024, beams: true,  shadows: true },
-  { name: 'Medium -', pixelRatio: 1.25, shadowMap: 1024, beams: true, shadows: true },
-  { name: 'Low',     pixelRatio: 1.00, shadowMap: 1024, beams: true,  shadows: true },
-  { name: 'Low -',   pixelRatio: 1.00, shadowMap: 512,  beams: false, shadows: true },
-  { name: 'Minimum', pixelRatio: 0.75, shadowMap: 512,  beams: false, shadows: false },
+  { name: 'High',    pixelRatio: 2.00, shadowMap: 2048, beams: true,  dust: true,  shadows: true },
+  { name: 'High -',  pixelRatio: 1.75, shadowMap: 2048, beams: true,  dust: true,  shadows: true },
+  { name: 'Medium',  pixelRatio: 1.50, shadowMap: 1024, beams: true,  dust: true,  shadows: true },
+  { name: 'Medium -', pixelRatio: 1.25, shadowMap: 1024, beams: true, dust: true,  shadows: true },
+  { name: 'Low',     pixelRatio: 1.00, shadowMap: 1024, beams: true,  dust: true,  shadows: true },
+  /**
+   * Beams go before dust, which is the opposite of what their relative
+   * subtlety suggests and the right way round for what they cost. A beam cone
+   * covers a large, near-fullscreen-adjacent area of blended fragments; the
+   * whole dust field is 260 sprites of eleven millimetres, which even at close
+   * range is a small fraction of that area. Cutting the expensive effect first
+   * is what lets the distinctive one survive a tier longer.
+   */
+  { name: 'Low -',   pixelRatio: 1.00, shadowMap: 512,  beams: false, dust: true,  shadows: true },
+  { name: 'Minimum', pixelRatio: 0.75, shadowMap: 512,  beams: false, dust: false, shadows: false },
 ];
 
 /** Frames to ignore at startup. */

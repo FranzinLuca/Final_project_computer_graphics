@@ -46,6 +46,7 @@ import {
   configureMaps,
   verticalGradientTexture,
   studioEnvironmentTexture,
+  radialFalloffTexture,
 } from './textures.js';
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,69 @@ export const ROOM = {
 
 /** The furthest the camera may orbit and stay inside the room. */
 export const MAX_ORBIT = ROOM.cycWall - 0.55;
+
+// ---------------------------------------------------------------------------
+// Contact shadows
+// ---------------------------------------------------------------------------
+
+/** One falloff texture shared by every patch. Built on first use. */
+let falloff = null;
+
+/**
+ * A soft dark patch laid on the floor under an object.
+ *
+ * The key light casts a real shadow map, and it is doing its job — but a
+ * shadow map cannot produce a contact shadow, and the two are different
+ * phenomena. A shadow map answers "is this point occluded from the light",
+ * which for a directional light at 55 degrees puts the slab's shadow off to
+ * one side. Contact darkening is ambient occlusion: the ground immediately
+ * under an object is occluded from MOST OF THE SKY, no matter where the key
+ * happens to be, and that is the cue the eye actually uses to decide whether
+ * something rests on a surface or hovers above it. An object with a perfect
+ * cast shadow and no contact darkening still reads as floating.
+ *
+ * Three has no cheap way to compute this — screen-space AO needs a depth
+ * prepass and a post chain, and there is no post chain in this project. So it
+ * is authored: a disc with a radial alpha ramp, black, laid a millimetre above
+ * the floor. It costs one transparent draw per object and it is placed by
+ * hand, which is honest and is recorded as such in the limitations.
+ *
+ * `depthWrite: false` because a transparent patch that writes depth will
+ * occlude anything drawn after it at the same depth, and `polygonOffset`
+ * rather than a larger Y lift because lifting the patch far enough to clear
+ * z-fighting on its own would separate it visibly from the floor at grazing
+ * camera angles — which is the one angle this scene is always seen from.
+ *
+ * @param {number} radius world units
+ * @param {number} opacity how dark at the centre
+ */
+export function makeContactShadow(radius, opacity = 0.55) {
+  if (!falloff) falloff = radialFalloffTexture(128, 3.5);
+
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    alphaMap: falloff,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    // Not lit, not fogged, and not tone mapped: this is a compositing element
+    // standing in for an integral, not a surface. Letting the fog tint it
+    // would wash the far edge of the patch towards the backdrop colour and
+    // make the object float again at exactly the distance the fog starts.
+    fog: false,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.001;
+  mesh.renderOrder = 1;
+  mesh.name = 'contact-shadow';
+  return mesh;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -116,7 +180,24 @@ export function buildEnvironment({ scene, renderer }) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   const equirect = studioEnvironmentTexture();
   scene.environment = pmrem.fromEquirectangular(equirect).texture;
-  scene.environmentIntensity = 0.50;
+
+  /**
+   * 0.11, down from 0.50, and the map itself is unchanged.
+   *
+   * Two jobs were being done by one number and they wanted opposite things.
+   * The environment is both an ambient diffuse term — the thing that was
+   * flooding the scene and flattening it — and the only thing a metallic
+   * surface can reflect, without which the hinge barrels and the yokes render
+   * black. Dimming the INTENSITY rather than dulling the MAP keeps the softbox
+   * layout intact in the reflection, so metal still catches a bright shape and
+   * a legible horizon while contributing almost nothing to the ambient floor.
+   *
+   * That is also why the map is still drawn bright. A dark environment texture
+   * at intensity 0.5 would have given the same average and a dead reflection:
+   * the two are not interchangeable, because reflection cares about the
+   * distribution and diffuse only cares about the mean.
+   */
+  scene.environmentIntensity = 0.11;
   equirect.dispose();
   pmrem.dispose();
 
@@ -161,17 +242,40 @@ export function buildEnvironment({ scene, renderer }) {
   const floorMaterial = new THREE.MeshStandardMaterial({
     ...concrete,
     color: PALETTE.ground,
-    metalness: 0.0,
+
     /**
-     * `roughness` multiplies `roughnessMap`, it does not replace it. Leaving
-     * it at the default 1.0 lets the map's own 0.34–0.68 band through
-     * unchanged, which is the band that was designed. Setting it to, say, 0.5
-     * here would halve the whole range to 0.17–0.34 and turn the floor into a
-     * mirror. The same is true of `metalness` and `metalnessMap`, and it
-     * catches people constantly.
+     * Still a dielectric. A polished black stage floor is lacquer over a dark
+     * substrate, not metal, and the difference is not pedantry: a metal
+     * reflects its own colour and has no diffuse response at all, so
+     * `metalness: 1` on a near-black albedo renders a black mirror that shows
+     * only the environment. A dielectric keeps a diffuse term for the light
+     * pools to land in AND gains a Fresnel-weighted specular that strengthens
+     * at grazing angles — which is exactly the effect wanted, because the
+     * camera never looks straight down at this floor.
      */
-    roughness: 1.0,
-    normalScale: new THREE.Vector2(0.6, 0.6),
+    metalness: 0.0,
+
+    /**
+     * `roughness` MULTIPLIES `roughnessMap`, it does not replace it — and here
+     * that is used deliberately rather than avoided. The map was authored over
+     * 0.34–0.68, the semi-gloss band of sealed concrete. A factor of 0.42
+     * carries the whole band down to 0.14–0.29 without flattening it, so the
+     * floor becomes lacquered while keeping the mottle that breaks the
+     * specular streak into something that reads as a real surface. Replacing
+     * the band with a single number would give a clean airbrushed streak, and
+     * a clean streak is the giveaway of a floor that is a shader rather than a
+     * floor.
+     *
+     * This is the surface the phase leans on hardest. Every fixture in the
+     * room now leaves a long raking highlight across it, and that highlight is
+     * most of what makes the lighting read as stage lighting.
+     */
+    roughness: 0.42,
+
+    // Halved with the roughness. A polished surface shows less of its own
+    // relief, not more — the specular lobe that would reveal the normal detail
+    // is now tight enough to reflect the room instead of the bumps.
+    normalScale: new THREE.Vector2(0.3, 0.3),
   });
 
   const floor = new THREE.Mesh(

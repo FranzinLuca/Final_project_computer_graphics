@@ -392,6 +392,56 @@ export function toonRamp(levels = [0.45, 0.62, 0.80, 1.0]) {
 // ---------------------------------------------------------------------------
 
 /**
+ * A white radial falloff on transparent — one texture, two jobs.
+ *
+ * It is the sprite for a dust mote and the alpha for a contact shadow, which
+ * sound like unrelated things and are the same thing: a soft disc whose alpha
+ * falls off from the centre. One is added to the frame and one is subtracted
+ * from it, and that difference lives entirely in the material's blending mode,
+ * not in the image. Generating it twice with two names would be two things to
+ * keep in step for no gain.
+ *
+ * `exponent` shapes the falloff. 2 is a broad haze, useful for a mote seen out
+ * of focus; 3.5 concentrates the alpha near the centre and leaves a long thin
+ * tail, which is what a contact shadow does — dark where the object nearly
+ * touches the ground and vanishing well before its silhouette ends.
+ *
+ * Drawn with an explicit per-pixel curve rather than a canvas radial gradient
+ * because a CSS-style gradient interpolates its stops in premultiplied sRGB,
+ * and the resulting falloff has a visible ring in it at low alpha — which on a
+ * near-black floor is precisely the range this is used in.
+ */
+export function radialFalloffTexture(size = 64, exponent = 2.0) {
+  const data = new Uint8Array(size * size * 4);
+  const centre = (size - 1) / 2;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x - centre) / centre;
+      const dy = (y - centre) / centre;
+      // Clamped so the disc reaches zero exactly at the texture edge; without
+      // the clamp the corners carry alpha and a "soft" sprite renders as a
+      // faintly visible square.
+      const r = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+      const alpha = Math.pow(1 - r, exponent);
+
+      const i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = Math.round(alpha * 255);
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  // Colour, so sRGB — the alpha channel is untouched by the colour space
+  // conversion, which is the only channel that carries information here.
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
  * A vertical two-stop gradient, used as the scene background.
  *
  * Two texels wide because the gradient does not vary horizontally and a 2x256
