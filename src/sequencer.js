@@ -86,6 +86,7 @@ export function initSequencer({ audio, container = document.body }) {
       <label class="seq-field">Draw
         <select data-act="pad"></select>
       </label>
+      <span class="seq-hint">left-click adds &middot; right-click removes</span>
       <button class="seq-btn" data-act="undo" disabled>Undo</button>
       <button class="seq-btn seq-collapse" data-act="collapse" title="Hide">–</button>
     </div>
@@ -270,15 +271,55 @@ export function initSequencer({ audio, container = document.body }) {
   // Editing
   // -----------------------------------------------------------------------
 
+  /**
+   * LEFT ADDS, RIGHT REMOVES.
+   *
+   * It was a toggle, and a toggle is the wrong verb for a grid where a cell
+   * can hold more than one note. With one mouse button the only thing a click
+   * can express is "flip whatever is under the pointer", so putting a snare on
+   * a step that already has a kick, or taking the kick off and leaving the
+   * snare, needed the pad selector changed first and then a click that might
+   * do either thing depending on state you could not see.
+   *
+   * Two buttons is two verbs, and both become unconditional: left always
+   * writes the selected pad, right always takes something away. Neither
+   * depends on what is already there, which means neither can surprise you —
+   * the same property that makes the arm toggle better than the five-state
+   * cycle it replaced.
+   */
+  function editCell(cell, remove) {
+    const layer = Number(cell.dataset.layer);
+    const step = Number(cell.dataset.step);
+    selectedLayer = layer;
+
+    if (remove) {
+      // Prefer the selected pad; fall back to the last note on the step, so a
+      // right-click always does something visible even when the selector is
+      // pointing at a pad that is not on this cell.
+      if (!audio.removeStep(layer, step, selectedPad)) {
+        audio.removeStep(layer, step);
+      }
+      return;
+    }
+
+    /**
+     * Audition on write.
+     *
+     * Placing a note plays it, once, immediately. Drawing a pattern otherwise
+     * means writing in silence and finding out what it sounds like a bar
+     * later, which is the difference between composing and typing. It goes
+     * through `audio.trigger`, so it is a live hit on the master bus and is
+     * heard even if the layer being drawn into is muted.
+     */
+    if (audio.addStep(layer, step, selectedPad)) audio.trigger(selectedPad, 0.9);
+  }
+
   grid.addEventListener('click', (event) => {
     const target = event.target;
 
     const cell = target.closest('.seq-cell');
     if (cell) {
-      const layer = Number(cell.dataset.layer);
-      const step = Number(cell.dataset.step);
-      selectedLayer = layer;
-      audio.toggleStep(layer, step, selectedPad);
+      editCell(cell, false);
       return;
     }
 
@@ -302,6 +343,26 @@ export function initSequencer({ audio, container = document.body }) {
   // -----------------------------------------------------------------------
   // Transport bar
   // -----------------------------------------------------------------------
+
+  /**
+   * The right button, and the browser menu it would otherwise open.
+   *
+   * `contextmenu` rather than `mousedown` with `button === 2`, because
+   * contextmenu is the event the platform actually fires for "the secondary
+   * action" — it is what a two-finger tap on a trackpad and a long-press on
+   * some touch devices produce, where a raw button check catches only a real
+   * right mouse button.
+   *
+   * `preventDefault` only over a cell. Suppressing the menu across the whole
+   * panel would take away copy, paste and inspect everywhere else in it for no
+   * reason.
+   */
+  grid.addEventListener('contextmenu', (event) => {
+    const cell = event.target.closest?.('.seq-cell');
+    if (!cell) return;
+    event.preventDefault();
+    editCell(cell, true);
+  });
 
   root.querySelector('.seq-bar').addEventListener('click', (event) => {
     const action = event.target.dataset?.act;

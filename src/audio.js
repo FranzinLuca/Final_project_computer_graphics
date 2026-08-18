@@ -913,20 +913,62 @@ export function undo() {
  * than re-reading the whole pattern.
  */
 export function toggleStep(layerIndex, step, padId, velocity = 0.9) {
-  const layer = layers[layerIndex];
-  if (!layer) return false;
-
-  const slot = layer.pattern.steps[step];
+  const slot = slotAt(layerIndex, step);
   if (!slot) return false;
+  return slot.some((h) => h.padId === padId)
+    ? (removeStep(layerIndex, step, padId), false)
+    : (addStep(layerIndex, step, padId, velocity), true);
+}
 
-  const existing = slot.findIndex((h) => h.padId === padId);
-  if (existing >= 0) {
-    slot.splice(existing, 1);
-    bus.emit('layers:changed', { layers });
-    return false;
-  }
+/** The step array for one cell, or null if either index is out of range. */
+function slotAt(layerIndex, step) {
+  const layer = layers[layerIndex];
+  if (!layer) return null;
+  return layer.pattern.steps[step] ?? null;
+}
+
+/**
+ * Put a note in a cell. Idempotent.
+ *
+ * Adding a pad that is already on the step does nothing rather than stacking a
+ * duplicate, which matters now that the grid uses left-click for ADD rather
+ * than for toggle: with a toggle, a second click undoes the first and the user
+ * learns that; with an add, a second click must simply be harmless. The same
+ * one-hit-per-pad-per-step rule the recorder enforces (D29), applied to the
+ * other way of writing a note.
+ */
+export function addStep(layerIndex, step, padId, velocity = 0.9) {
+  const slot = slotAt(layerIndex, step);
+  if (!slot) return false;
+  if (slot.some((h) => h.padId === padId)) return false;
 
   slot.push({ padId, velocity });
+  bus.emit('layers:changed', { layers });
+  return true;
+}
+
+/**
+ * Take a note out of a cell.
+ *
+ * With no `padId`, removes the LAST note added rather than clearing the cell.
+ * That is the behaviour right-click wants: a step can legitimately hold three
+ * voices, and a click that wipes all of them makes the two survivors
+ * collateral damage of an attempt to remove one. Repeated clicks empty the
+ * cell one note at a time, which is undoable by eye.
+ *
+ * @returns {boolean} whether anything was removed
+ */
+export function removeStep(layerIndex, step, padId = null) {
+  const slot = slotAt(layerIndex, step);
+  if (!slot || slot.length === 0) return false;
+
+  const index = padId === null
+    ? slot.length - 1
+    : slot.findIndex((h) => h.padId === padId);
+
+  if (index < 0) return false;
+
+  slot.splice(index, 1);
   bus.emit('layers:changed', { layers });
   return true;
 }
@@ -975,5 +1017,5 @@ export const audio = {
   getContext, getMaster, getMasterFilter,
   PADS,
   PATTERN_LENGTHS, getPatternLength, setPatternLength, STEPS_PER_BAR,
-  toggleStep, isCapturing, getRecordState, snapshot, undo, canUndo,
+  toggleStep, addStep, removeStep, isCapturing, getRecordState, snapshot, undo, canUndo,
 };

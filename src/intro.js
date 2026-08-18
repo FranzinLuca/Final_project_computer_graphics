@@ -143,15 +143,42 @@ const CUE = {
 
 /**
  * @param {{
- *   scene: THREE.Scene, rigRoot: THREE.Object3D, lightGroup: THREE.Object3D,
+ *   scene: THREE.Scene, rigRoot: THREE.Object3D, stacksGroup: THREE.Object3D,
  *   mascot: any, hierarchy: any, cameraRig: any,
  *   mascotHome: THREE.Vector3, contactShadows?: THREE.Object3D[],
  * }} deps
  */
-export function initIntro({
-  scene, rigRoot, lightGroup, mascot, hierarchy, cameraRig,
-  mascotHome, contactShadows = [],
-}) {
+export function initIntro(deps) {
+  /**
+   * Dependency validation, and the reason it is worth six lines.
+   *
+   * This module takes seven injected objects and touches all of them during
+   * construction. When one is missing — because a sibling module was edited to
+   * expose it under a new name and one of the two files was not redeployed —
+   * the failure surfaces as `Cannot read properties of undefined (reading
+   * 'position')` from a line that has nothing to do with the mistake. That
+   * error names the property, never the dependency, and never the module that
+   * was supposed to supply it.
+   *
+   * Checking at the door turns a five-minute hunt into a sentence. Every
+   * module in this project is wired by main.js precisely so that dependencies
+   * are explicit; a missing one should say so out loud.
+   */
+  const REQUIRED = ['scene', 'rigRoot', 'stacksGroup', 'mascot', 'hierarchy', 'cameraRig', 'mascotHome'];
+  const missing = REQUIRED.filter((key) => !deps?.[key]);
+  if (missing.length) {
+    throw new Error(
+      `[intro] missing dependencies: ${missing.join(', ')}. ` +
+      `main.js passes 'stacksGroup: lighting.stacks' — if that one is missing, ` +
+      `lighting.js predates the split of the cabinets out of the light rig.`
+    );
+  }
+
+  const {
+    scene, rigRoot, stacksGroup, mascot, hierarchy, cameraRig,
+    mascotHome, contactShadows = [],
+  } = deps;
+
   // =======================================================================
   // The console
   //
@@ -423,13 +450,13 @@ export function initIntro({
   // =======================================================================
 
   const rigHome = rigRoot.position.y;
-  const lightHome = lightGroup.position.y;
+  const stacksHome = stacksGroup.position.y;
 
   const shadowOpacities = contactShadows.map((s) => s.material.opacity);
 
   function stage() {
     rigRoot.position.y = rigHome + RIG_DROP;
-    lightGroup.position.y = lightHome + TOWER_DROP;
+    stacksGroup.position.y = stacksHome + TOWER_DROP;
 
     const entry = clampToFloor(ENTRY.x, ENTRY.z);
     mascot.root.position.set(entry.x, 0, entry.z);
@@ -546,7 +573,7 @@ export function initIntro({
        * legitimately leave again. A wing overshooting its stop interpenetrates
        * the slab; a flight case overshooting the floor is called a bounce.
        */
-      tween(lightGroup.position, { y: lightHome }, CUE.towerFall, Easing.Bounce.Out);
+      tween(stacksGroup.position, { y: stacksHome }, CUE.towerFall, Easing.Bounce.Out);
     });
 
     // Dust on contact, which is BEFORE the tween finishes. Bounce.Out first
@@ -629,7 +656,7 @@ export function initIntro({
     timers = [];
 
     rigRoot.position.y = rigHome;
-    lightGroup.position.y = lightHome;
+    stacksGroup.position.y = stacksHome;
     mascot.root.position.set(mascotHome.x, 0, mascotHome.z);
     mascot.root.rotation.y = -0.62;
     pivot.rotation.x = HANDLE_DOWN;

@@ -75,48 +75,136 @@ let maxRadius = 2.75;
 const MAX_PHI = Math.PI * 0.495;
 const MIN_PHI = 0.12;
 
+/**
+ * THE SHOT LIST, RE-SOLVED.
+ *
+ * The previous six numbers were authored by eye against a scene that has since
+ * changed underneath them in four ways: the instrument was scaled 1.5x, the
+ * room grew from a 3.3-unit wall to 4.2 and from 2.4 of height to 4.9, the
+ * speaker stacks moved out to +/-1.38, and the light shafts became the thing
+ * the scene is built around. Every one of those moved what needs to be in
+ * frame, and none of them moved the shots.
+ *
+ * These are SOLVED rather than chosen. For each shot there is a set of points
+ * that must be visible — wing tips, tower tops, the mascot's head, samples
+ * along a shaft — and the framing was searched until every point falls inside
+ * the frustum at four aspect ratios from 4:3 to 2.2:1, with roughly a tenth of
+ * the frame left as margin. The aspect sweep is the part worth keeping: a shot
+ * tuned on a wide window silently crops on a laptop in a portrait-ish browser,
+ * and the one machine that matters is the one at the oral, which cannot be
+ * tested first.
+ *
+ * Two things they are all checked against, and which are properties of the
+ * room rather than of taste:
+ *
+ *   radius <= MAX_ORBIT   or the camera leaves the cyclorama and the room,
+ *                         drawn from the inside, disappears
+ *   MIN_PHI <= phi <= MAX_PHI   or it drops through the floor or rises into
+ *                         the dome's shoulder
+ *
+ * `clamp()` below enforces both regardless, so a bad number here is a framing
+ * error and never a broken render.
+ */
 export const SHOTS = [
   {
     name: 'Overview',
-    description: 'The default framing. Reads the whole instrument and the room.',
-    radius: 1.62,
-    phi: 1.09,
-    theta: 0.60,
-    target: [0.03, 0.08, 0],
+    description: 'The default. The instrument, both stacks and Otto in one frame.',
+    /**
+     * The instrument is the subject and the stacks are allowed to crop at the
+     * outer edge — they are set dressing, and insisting on their outer corners
+     * pushed the radius past 3.2, which made the slab small in its own
+     * establishing shot. The must-include set is the wing tips, Otto's head
+     * and the stacks' INNER faces.
+     */
+    radius: 2.60,
+    phi: 0.98,
+    theta: 0.75,
+    target: [0.05, 0.60, 0],
   },
   {
     name: 'Player',
-    description: 'Low and square on, roughly where a player stands.',
-    radius: 1.16,
-    phi: 1.28,
-    theta: 0.04,
-    target: [0, 0.09, 0],
+    description: 'Square on and close, where a player stands. The pad grid fills the frame.',
+    // theta 0 exactly: the pad grid is a square lattice and any azimuth at all
+    // shears it on screen, which is the one thing that makes a 4x4 grid look
+    // like a parallelogram instead of a grid.
+    radius: 1.60,
+    phi: 1.14,
+    theta: 0.00,
+    target: [0, 0.16, 0],
   },
   {
     name: 'Mechanism',
-    // Nearly side-on, because that is the one angle where the fold is legible:
-    // the wings rotate about an axis parallel to Z, so a viewer looking down
-    // that axis sees the rotation edge-on and reads nothing. This shot is for
-    // demonstrating the graded pillar, and it is worth having a button for it
-    // rather than hoping to orbit there smoothly during a defence.
-    description: 'Side-on and low, where the wing fold reads clearly.',
-    radius: 1.38,
-    phi: 1.36,
-    theta: 1.45,
-    target: [0, 0.13, 0],
+    description: 'Low and near-frontal, where the wing fold reads.',
+    /**
+     * Front, not side — and this reverses the old shot, which was nearly
+     * side-on with a comment explaining why.
+     *
+     * The wings rotate about Z (`wingPivot.rotation.z`), so their motion lies
+     * in the XY plane. A viewer looking ALONG Z sees that plane face-on and
+     * reads the full sweep; a viewer looking along X sees it edge-on and reads
+     * almost nothing. The old shot was authored when the case hinged the other
+     * way, and it survived the redesign of the mechanism it exists to show.
+     *
+     * Low, at phi 1.38, because the interesting instant is when the wings pass
+     * through vertical, and from above that is foreshortened to nothing.
+     */
+    radius: 1.80,
+    phi: 1.38,
+    theta: 0.15,
+    target: [0, 0.22, 0],
   },
   {
-    name: 'Room',
-    // The plan called for three. This fourth costs four numbers and is the
-    // only view that shows the speaker stacks, the beams and the cyclorama
-    // together — which is to say, the only view that shows phases 5, 6 and 10
-    // at all. It earns its place twice over now that the stacks are what
-    // frames the instrument: the wide shot is the one that reads as a stage.
-    description: 'Pulled back to the stacks and the cyc.',
-    radius: 2.70,
-    phi: 1.02,
-    theta: 0.78,
-    target: [0, 0.34, 0],
+    name: 'Otto',
+    description: 'Close on the mascot, for his own joint chain.',
+    /**
+     * Orbits HIM, not the instrument — the target is his position rather than
+     * the origin, which is what the arbitrary-framing `moveTo` was generalised
+     * for. He is the project's second hierarchical model and its clearest
+     * example of structure-driven animation now that the yokes are gone, and
+     * pointing at him during a defence should not mean orbiting there by hand.
+     */
+    radius: 0.90,
+    phi: 1.24,
+    theta: 0.95,
+    target: [1.02, 0.20, 0.20],
+  },
+  {
+    name: 'Stage',
+    description: 'Wide. Both stacks, the console, the mascot and the room.',
+    // The only framing that contains the console, which sits furthest out at
+    // x 1.66 — hence the target pushed to +0.30 rather than sitting on the
+    // origin. Without that offset the console clips off the right edge on
+    // anything narrower than 16:9.
+    radius: 3.60,
+    phi: 1.06,
+    theta: 0.45,
+    target: [0.30, 0.70, 0.05],
+  },
+  {
+    name: 'Beams',
+    description: 'Low and back, looking up into the shafts where they cross.',
+    /**
+     * The shot the volumetric pass exists for, and the one the old list had no
+     * equivalent of because there were no shafts when it was written.
+     *
+     * phi 1.46 is nearly at the horizon limit: the camera sits low so the
+     * shafts run UP and out of frame, which is how a stage looks from the
+     * floor and what makes the crossing region read as being overhead. The
+     * target at y 1.35 puts that crossing in the middle of the frame with the
+     * instrument small along the bottom edge, so the beams have something to
+     * be above.
+     *
+     * Solved against samples taken along each shaft's axis at three heights
+     * rather than against its apex: the apexes are 4.6 units apart at y 3.95
+     * and containing both of them needs a framing so wide the instrument
+     * vanishes. What has to be in shot is where the light crosses, not where
+     * it comes from — which is also the reason the emitters were moved out of
+     * frame in the first place.
+     */
+    radius: 3.60,
+    phi: 1.46,
+    theta: 0.10,
+    target: [0, 1.35, 0],
   },
 ];
 

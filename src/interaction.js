@@ -56,6 +56,7 @@ export const KEY_LABELS = new Map(
 export const COMMAND_KEYS = [
   { code: 'Space', label: 'Space', description: 'Start / stop the sequencer' },
   { code: 'KeyO',  label: 'O',     description: 'Unfold / fold the slab' },
+  { code: 'KeyV',  label: 'V',     description: 'Cycle the camera shots' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -416,6 +417,22 @@ export function initInteraction({ canvas, camera, controls, rig }) {
 
     if (event.code === 'KeyO') {
       bus.emit('case:toggle', {});
+      event.preventDefault();
+      return;
+    }
+
+    /**
+     * A one-key way back to a good framing.
+     *
+     * This is the mitigation that makes free orbit safe rather than a trap.
+     * The cost of letting the user move the camera is that they can put it
+     * somewhere useless — under the floor's horizon limit, nose-first into a
+     * speaker cabinet — and then have to fight it back by hand. A key that
+     * cycles the authored shots means being lost is one keystroke deep instead
+     * of a recovery task.
+     */
+    if (event.code === 'KeyV') {
+      bus.emit('camera:next', {});
       event.preventDefault();
     }
   }

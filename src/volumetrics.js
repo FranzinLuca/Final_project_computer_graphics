@@ -375,6 +375,22 @@ const fragmentShader = /* glsl */ `
 `;
 
 /**
+ * The composite: a half-resolution buffer added over the finished frame.
+ *
+ * Trivial by design. All it does is read a texture and add it, and the reason
+ * it exists at all is resolution — see `initVolumetrics` below.
+ */
+const compositeFragment = /* glsl */ `
+  precision highp float;
+  varying vec2 vUv;
+  uniform sampler2D tVolume;
+
+  void main() {
+    gl_FragColor = vec4(texture2D(tVolume, vUv).rgb, 1.0);
+  }
+`;
+
+/**
  * Build the volumetric pass.
  *
  * Owns its own scene and camera. A fullscreen quad living in the main scene
@@ -445,10 +461,18 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     fragmentShader,
     uniforms,
     transparent: true,
-    // Light adds and never occludes, so the composite is additive and neither
-    // tests nor writes depth — occlusion is handled analytically inside the
-    // shader against the depth texture, not by the depth unit.
-    blending: THREE.AdditiveBlending,
+    /**
+     * NORMAL blending, not additive — because this no longer draws onto the
+     * frame. It draws into a cleared buffer of its own, and the ADDING happens
+     * in the composite. Leaving it additive here would accumulate against
+     * whatever the target held, which after the first frame is the previous
+     * frame's shafts, and the image would ramp to white over a few seconds.
+     *
+     * Depth is neither tested nor written in either pass: occlusion is
+     * resolved analytically inside the shader against the depth texture, not
+     * by the depth unit.
+     */
+    blending: THREE.NormalBlending,
     depthTest: false,
     depthWrite: false,
   });
@@ -457,6 +481,63 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
   const quadCamera = new THREE.Camera();
   quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material));
 
+  /**
+   * THE SHAFTS ARE MARCHED AT HALF RESOLUTION AND UPSCALED.
+   *
+   * This is the fix for the shafts vanishing after a minute or two, and the
+   * cause is worth writing down because the symptom pointed at the wrong file
+   * entirely.
+   *
+   * Nothing was wrong with the shader. `quality.js` was doing its job: the
+   * raymarch at full resolution is six beams times up to twenty-eight steps
+   * per PIXEL, on top of a full-scene depth prepass, and on a machine that
+   * cannot hold 50 fps the controller stepped down the ladder until it reached
+   * the tier that switches the pass off. Then the retry backoff — which exists
+   * precisely so a failing tier is not retried at the same rate — doubled the
+   * delay each time, so the shafts went away and stayed away. Every part of
+   * that is the controller working correctly on a frame budget that was too
+   * expensive to keep.
+   *
+   * So the cost comes down by a factor of four instead. Marching at half
+   * resolution and upsampling is the standard treatment for exactly this
+   * effect, and it is unusually well-suited here: a light shaft is a smooth,
+   * low-frequency field with no edges of its own, so bilinear interpolation
+   * reconstructs it almost exactly. The one place it does not is where a beam
+   * is cut off by geometry — those edges are half-resolution now. They were
+   * already half-resolution, because the depth buffer they are tested against
+   * has been half-size since the pass was written.
+   *
+   * With the pass this cheap, no tier turns it off any more. A quality ladder
+   * that removes a feature is admitting the feature costs too much; making it
+   * cost less is the better answer, and it is the same reasoning that deleted
+   * the beam cones rather than making them optional.
+   */
+  const volumeTarget = new THREE.WebGLRenderTarget(1, 1, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat,
+    type: THREE.UnsignedByteType,
+    // No depth attachment: the pass tests depth analytically against the
+    // texture from the prepass, so there is nothing for a depth buffer here to
+    // do except cost memory and bandwidth.
+    depthBuffer: false,
+    stencilBuffer: false,
+    generateMipmaps: false,
+  });
+
+  const compositeMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader: compositeFragment,
+    uniforms: { tVolume: { value: volumeTarget.texture } },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  const compositeScene = new THREE.Scene();
+  compositeScene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), compositeMaterial));
+
   let width = 1;
   let height = 1;
   let enabled = true;
@@ -464,7 +545,14 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
   function setSize(w, h) {
     width = w;
     height = h;
-    depthTarget.setSize(Math.max(1, Math.floor(w * scale)), Math.max(1, Math.floor(h * scale)));
+    const dw = Math.max(1, Math.floor(w * scale));
+    const dh = Math.max(1, Math.floor(h * scale));
+    depthTarget.setSize(dw, dh);
+    // The volume buffer matches the depth buffer exactly. Marching at a
+    // resolution the depth is not available at would mean sampling one depth
+    // texel across several march pixels, which puts a visible stair-step on
+    // every occlusion edge for no gain.
+    volumeTarget.setSize(dw, dh);
   }
 
   /**
@@ -539,10 +627,20 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     uniforms.uFar.value = camera.far;
     uniforms.uTime.value = elapsed;
 
-    // autoClear off, or the composite wipes the frame it is meant to add to.
     const previousAutoClear = renderer.autoClear;
-    renderer.autoClear = false;
+
+    // Pass one: march into the half-resolution buffer, cleared to black so
+    // every pixel the shader discards contributes exactly nothing later.
+    renderer.autoClear = true;
+    renderer.setRenderTarget(volumeTarget);
     renderer.render(quadScene, quadCamera);
+    renderer.setRenderTarget(null);
+
+    // Pass two: add it over the finished frame. autoClear off, or the
+    // composite wipes the very frame it is meant to add to.
+    renderer.autoClear = false;
+    renderer.render(compositeScene, quadCamera);
+
     renderer.autoClear = previousAutoClear;
   }
 
@@ -557,8 +655,10 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     isEnabled: () => enabled,
     dispose: () => {
       depthTarget.dispose();
+      volumeTarget.dispose();
       depthMaterial.dispose();
       material.dispose();
+      compositeMaterial.dispose();
     },
   };
 }

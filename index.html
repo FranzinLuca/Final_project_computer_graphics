@@ -270,6 +270,14 @@
   .seq-collapse { padding: 6px 10px; }
 
   .seq-state { color: var(--dim); min-width: 210px; }
+
+  /* Says which button does what, once, next to the control it applies to. */
+  .seq-hint {
+    color: var(--dim);
+    font-size: 11px;
+    opacity: 0.75;
+  }
+  @media (max-width: 900px) { .seq-hint { display: none; } }
   .seq-state.is-play { color: #6ff0d8; }
   .seq-state.is-rec { color: #ff8078; }
   /*

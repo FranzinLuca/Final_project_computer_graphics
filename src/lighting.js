@@ -354,6 +354,27 @@ export function initLighting({ scene }) {
   group.name = 'reactive-lights';
   scene.add(group);
 
+  /**
+   * The cabinets get their own sub-group, separate from the emitters.
+   *
+   * This existed as one group and it was a bug waiting to be triggered, which
+   * the power-on sequence duly triggered. The intro lifts the speaker stacks
+   * 2.4 units so they can fall in — and with the lights in the same group, it
+   * lifted those too, putting every emitter at nearly 6.4 in a room whose dome
+   * apex is 4.9. The lights ended up OUTSIDE the enclosure, shining through it
+   * from above (spot lights here cast no shadows, so nothing stopped them),
+   * which lit the ceiling from the wrong side and blew the whole opening out.
+   *
+   * The deeper point is that "the light rig" was two things sharing a
+   * transform for no reason other than having been written in one file. A
+   * cabinet is furniture that can be moved; an emitter is a fixed point in the
+   * room. Anything that wants to animate one has no business moving the other,
+   * and now cannot.
+   */
+  const stacks = new THREE.Group();
+  stacks.name = 'speaker-stacks';
+  group.add(stacks);
+
   // -----------------------------------------------------------------------
   // Shared geometry and materials
   //
@@ -577,7 +598,7 @@ export function initLighting({ scene }) {
     const root = new THREE.Group();
     root.position.set(side * TOWER.x, 0, TOWER.z);
     root.name = `tower-${side < 0 ? 'left' : 'right'}`;
-    group.add(root);
+    stacks.add(root);
 
     // --- branch one: the cabinets, toed in -------------------------------
     const stack = new THREE.Group();
@@ -737,6 +758,9 @@ export function initLighting({ scene }) {
     // announces exactly where something is about to appear.
     patch.userData.kind = 'tower';
     towerShadows.push(patch);
+    // The patch stays in the room, not on the stack: a contact shadow belongs
+    // to the FLOOR, and a cabinet two units in the air should not be dragging
+    // its own darkening up with it.
     group.add(patch);
 
     /**
@@ -1055,7 +1079,17 @@ export function initLighting({ scene }) {
     .filter((f) => f.volumetric)
     .map((f) => ({
       source: f,
-      position: f.position,
+      /**
+       * A WORLD position, refreshed each frame, not an alias of the light's
+       * local one.
+       *
+       * volumetrics.js marches in world space, so handing it a local position
+       * is only correct while every ancestor sits at the origin — which was
+       * true until something animated one of them, and then silently was not.
+       * Copying the world position costs one matrix decomposition per beam per
+       * frame and removes the whole class of failure.
+       */
+      position: new THREE.Vector3(),
       direction: new THREE.Vector3(),
       color: f.light.color,
       intensity: 0,
@@ -1075,9 +1109,18 @@ export function initLighting({ scene }) {
       // aim rather than moving the target keeps the apex fixed, which is what
       // a panning head does — a shaft whose origin slides is a shaft nobody
       // believes.
+      // World matrices are only refreshed by the renderer, which has not run
+      // yet this frame. Six explicit updates cost nothing and remove a
+      // one-frame lag that is invisible at rest and obvious during a drop.
+      source.light.updateWorldMatrix(true, false);
+      source.light.getWorldPosition(beam.position);
+
       const phase = i * 1.7;
       const yaw = Math.sin(t * 0.27 + phase) * 0.055 + level.mid * 0.04 * (i % 2 ? 1 : -1);
       const pitch = Math.sin(t * 0.19 + phase) * 0.030 - level.mid * 0.035;
+
+      // Refreshed from the scene graph rather than assumed.
+      source.light.getWorldPosition(beam.position);
 
       driftAxis.copy(source.direction);
       // Two small rotations about the world axes. At this magnitude the order
@@ -1333,6 +1376,8 @@ export function initLighting({ scene }) {
      */
     beams: beamDescriptors,
     towerShadows,
+    /** The cabinets alone, so the intro can drop them without moving lights. */
+    stacks,
     lights: {
       wash: wash.map((f) => f.light),
       accent: accent.map((f) => f.light),

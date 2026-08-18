@@ -18,7 +18,7 @@ import { initHierarchy } from './hierarchy.js';
 import { initInteraction, KEY_LABELS } from './interaction.js';
 import { initLighting } from './lighting.js';
 import { buildEnvironment, MAX_ORBIT, makeContactShadow } from './environment.js';
-import { initCamera } from './camera.js';
+import { initCamera, SHOTS } from './camera.js';
 import { initUI } from './ui.js';
 import { initSequencer } from './sequencer.js';
 import { PRESETS, loadPreset } from './presets.js';
@@ -331,29 +331,6 @@ const lighting = initLighting({ scene });
  */
 const volumetrics = initVolumetrics({ renderer, scale: 0.5 });
 
-/**
- * Tiers at or above this index switch the volumetric pass off entirely.
- *
- * Declared HERE, immediately above the callback that reads it, and not down
- * with the render loop where it was first written — which threw a
- * ReferenceError on load.
- *
- * The cause is worth stating exactly, because it is the same shape of mistake
- * that put `initQuality` before `initLighting` in phase 9 and it will keep
- * recurring otherwise. `initQuality` calls `apply(0)` synchronously during
- * construction, to put the renderer into its top tier before the first frame.
- * That fires `onTierChange` at once — so anything the callback closes over
- * must already be INITIALISED, not merely hoisted. `const` and `let` are
- * hoisted but sit in the temporal dead zone until their declaration is
- * evaluated, so a constant three hundred lines further down is visible to the
- * closure and unreadable from it.
- *
- * The general rule this file should follow: a value consumed by a callback
- * that can fire during setup belongs above the setup call, not near the code
- * that happens to read it later.
- */
-const TIERS_WITHOUT_VOLUME = 5;
-
 const quality = initQuality({
   renderer,
   shadowLight: key,
@@ -366,10 +343,22 @@ const quality = initQuality({
    */
   onTierChange: (tier, index) => {
     volumetrics.setSteps(tier.steps ?? 24);
-    // The bottom rung drops the shafts entirely, along with the depth prepass
-    // that feeds them — which is the single largest saving available, because
-    // it removes a whole scene traversal rather than making one cheaper.
-    volumetrics.setEnabled(index < TIERS_WITHOUT_VOLUME);
+
+    /**
+     * No tier switches the shafts off any more.
+     *
+     * The bottom rung used to, and it was the reason they vanished after a
+     * minute on a machine that could not hold 50 fps: the controller stepped
+     * down the ladder as designed, reached the tier that disables the pass,
+     * and the retry backoff then kept it there. Correct behaviour, wrong
+     * budget.
+     *
+     * Marching at half resolution took a factor of four out of the cost, so
+     * the ladder can degrade the shafts — twenty-eight steps down to eight —
+     * without ever removing them. A quality tier that deletes a feature is
+     * admitting the feature costs too much; making it cost less is the better
+     * answer, and it means the scene always looks like itself.
+     */
   },
 });
 
@@ -516,6 +505,20 @@ bus.on('record:armed', ({ layer }) => rig.holdButton('rec', layer !== null));
 
 canvas.addEventListener('pointerdown', () => cameraRig.release(), true);
 
+/**
+ * V cycles the authored shots.
+ *
+ * The camera stays free — orbiting is one of the interactions the brief lists
+ * by name, and taking it away to protect the framing would be trading a graded
+ * feature for a cosmetic one. What it needed was a way back, which this is.
+ */
+let shotIndex = 0;
+
+bus.on('camera:next', () => {
+  shotIndex = (shotIndex + 1) % SHOTS.length;
+  cameraRig.goTo(SHOTS[shotIndex].name);
+});
+
 // ---------------------------------------------------------------------------
 // The power-on sequence
 // ---------------------------------------------------------------------------
@@ -525,12 +528,16 @@ const MASCOT_HOME = new THREE.Vector3(1.02, 0, 0.20);
 const intro = initIntro({
   scene,
   rigRoot: rig.root,
-  // The whole light rig, stacks included, is one group — so lowering the
-  // stacks underground is one position, and the emitters ride down with them
-  // even though they are invisible. That is not a problem worth solving: an
-  // emitter two metres below the floor still lights nothing, because the floor
-  // is between it and everything else.
-  lightGroup: lighting.group,
+  /**
+   * The CABINETS, not the whole light rig.
+   *
+   * Handing over `lighting.group` moved the emitters with the speakers, which
+   * for the first seconds of every session put them at nearly 6.4 in a room
+   * whose dome apex is 4.9 — outside the enclosure, lighting the ceiling
+   * through it. The intro animates furniture; the emitters are fixed points in
+   * the room and it must not be able to reach them.
+   */
+  stacksGroup: lighting.stacks,
   mascot,
   hierarchy,
   cameraRig,

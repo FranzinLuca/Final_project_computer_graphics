@@ -264,7 +264,9 @@ export function buildMascot({ scale = 1.2 } = {}) {
     stick.rotation.x = Math.PI * 0.86;
     wrist.add(stick);
 
-    return { shoulder, lift, elbow, wrist, side, strike: 0 };
+    // `swing0` remembers the authored rest angle, because the per-frame code
+    // writes `shoulder.rotation.z` and would otherwise drift away from it.
+    return { shoulder, lift, elbow, wrist, side, strike: 0, swing0: swing };
   });
 
   // -----------------------------------------------------------------------
@@ -333,6 +335,68 @@ export function buildMascot({ scale = 1.2 } = {}) {
 
   const BLINK_DURATION = 0.16;
 
+  // -----------------------------------------------------------------------
+  // Keeping time
+  //
+  // The arms did not move. That is worth stating plainly because it was not
+  // obvious from the code: `strike` was decayed every frame and spent on the
+  // body squash, the head dip and the eye flash, and the shoulder chain that
+  // was built specifically to swing a stick was never written to at all. So a
+  // hit made him flinch and never made him play.
+  //
+  // Two things fixed it, and they are different animations that happen to
+  // share a joint chain.
+  //
+  //   THE STROKE is the reaction to a hit: the existing per-arm `strike`
+  //   envelope, now driving lift, elbow and wrist so a stick actually comes
+  //   down and springs back.
+  //
+  //   THE GROOVE is the thing a drummer does between hits, which is most of
+  //   what makes one look like a drummer. He counts. The arms rise and fall on
+  //   the beat whether or not anything is being struck, in opposite phase, so
+  //   the sticks alternate the way hands do.
+  //
+  // The groove needs the tempo, and the tempo lives in audio.js — which this
+  // module must never import. It arrives on the bus instead, the same way
+  // every other cross-module fact does.
+  // -----------------------------------------------------------------------
+
+  let bpm = 100;
+  let playing = false;
+
+  /**
+   * Beats since the transport started, as a running float.
+   *
+   * Advanced continuously in `update` rather than stepped on each
+   * `transport:step` event, because a phase that only moves sixteen times a
+   * bar is a phase that moves in visible jerks — the arms would tick rather
+   * than swing. The events are used to CORRECT it instead: every downbeat
+   * snaps the phase back to a whole number, so the swing stays locked to the
+   * music without being quantised by it.
+   *
+   * The same relationship the lighting envelopes have with the analyser:
+   * continuous motion, periodically corrected by discrete truth.
+   */
+  let beatPhase = 0;
+
+  /** How much of the groove is showing, 0..1. Ramped, never switched. */
+  let grooveAmount = 0;
+
+  bus.on('transport:bpm', (payload) => { bpm = payload.bpm; });
+
+  bus.on('transport:start', () => {
+    playing = true;
+    beatPhase = 0;
+  });
+
+  bus.on('transport:stop', () => { playing = false; });
+
+  bus.on('transport:step', ({ step }) => {
+    // Resync on the downbeat only. Correcting on every sixteenth would drag
+    // the phase back four times a beat and flatten the swing into a stutter.
+    if (step % 4 === 0) beatPhase = Math.round(beatPhase);
+  });
+
   /**
    * @param {number} dt seconds since the last frame
    * @param {number} t  seconds since the page started
@@ -349,9 +413,39 @@ export function buildMascot({ scale = 1.2 } = {}) {
     }
     flash *= Math.exp(-dt * 6);
 
+    // --- the beat --------------------------------------------------------
+    //
+    // Advanced in BEATS, from the tempo, so the groove is locked to the music
+    // rather than to the wall clock. `bpm / 60` is beats per second, which is
+    // the only conversion in here and the reason nothing needs retuning when
+    // the tempo knob moves.
+    if (playing) beatPhase += dt * (bpm / 60);
+
+    // Ramped in and out over about a second rather than switched, so pressing
+    // stop lets him wind down instead of freezing mid-swing.
+    const grooveTarget = playing ? 1 : 0;
+    grooveAmount += (grooveTarget - grooveAmount) * Math.min(1, dt * 3.2);
+
+    const beat = beatPhase * Math.PI * 2;
+
     // --- chassis ---------------------------------------------------------
     sway.rotation.z = Math.sin(t * 0.9) * 0.030;
-    bob.position.y = Math.sin(t * 2.1) * 0.006 - impulse * 0.020;
+
+    /**
+     * The body bob is the idle breath PLUS a bounce on the beat.
+     *
+     * Doubled frequency on the tempo term — `beat * 2` is eighth notes —
+     * because a body that rises and falls once per beat reads as slow and
+     * seasick at anything under 110 bpm. Bouncing on the eighths is what
+     * people actually do, and it stays legible up to drill tempo.
+     *
+     * Negative sine so he is DOWN on the beat rather than up: weight drops
+     * onto the downbeat, it does not launch off it.
+     */
+    bob.position.y =
+      Math.sin(t * 2.1) * 0.006
+      - impulse * 0.020
+      - grooveAmount * Math.max(0, Math.sin(beat * 2)) * 0.012;
 
     // Squash and stretch, conserving rough volume: what is lost in height is
     // returned in width. Without the widening a squash reads as the character
@@ -361,6 +455,41 @@ export function buildMascot({ scale = 1.2 } = {}) {
     // Tracks rock back under the recoil.
     for (const wheels of wheelSets) {
       for (const wheel of wheels) wheel.rotation.x = -impulse * 0.9;
+    }
+
+    // --- arms ------------------------------------------------------------
+    //
+    // The joint chain that exists to swing a stick, finally being written to.
+    //
+    // Three joints move together and they are not three separate animations:
+    // a drum stroke is one motion distributed down an arm, so all three are
+    // driven from the same `strike` scalar with different gains and signs. The
+    // upper arm drops, the elbow extends into the hit, and the wrist snaps
+    // last — which is the order a real stroke happens in and the reason the
+    // wrist gain is the largest of the three despite the smallest travel.
+    for (const arm of arms) {
+      /**
+       * Opposite phase per side, so the sticks alternate.
+       *
+       * `side` is -1 or +1 and half a cycle is π, so multiplying by `side`
+       * puts the two arms exactly out of step with each other. That single
+       * term is most of what makes him read as playing rather than as
+       * flapping: two hands moving together is a clap, two hands alternating
+       * is a groove.
+       */
+      const phase = beat + (arm.side > 0 ? Math.PI : 0);
+      const groove = Math.sin(phase) * grooveAmount * 0.20;
+
+      // Idle sway, so he is never completely still even stopped.
+      const idle = Math.sin(t * 1.1 + arm.side) * 0.035 * (1 - grooveAmount);
+
+      arm.lift.rotation.x = REST.lift + groove + idle + arm.strike * 0.62;
+      arm.elbow.rotation.x = REST.elbow - groove * 0.45 - arm.strike * 0.38;
+      arm.wrist.rotation.x = REST.wrist - groove * 0.30 + arm.strike * 0.70;
+
+      // A little shoulder rotation with the swing, so the arm travels slightly
+      // outward as it lifts instead of hinging in one plane like a pump handle.
+      arm.shoulder.rotation.z = arm.swing0 + groove * 0.12 * arm.side;
     }
 
     // --- head ------------------------------------------------------------
