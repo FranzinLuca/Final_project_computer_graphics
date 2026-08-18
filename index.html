@@ -173,11 +173,294 @@
     opacity: 0.75;
   }
 
+  /*
+    The hover readout.
+
+    A DOM element rather than a three.js sprite, and the reasoning is the same
+    one behind the boot overlay being HTML: text that must be READ wants the
+    browser's own type rasteriser, hinted and subpixel-positioned at the exact
+    device resolution. A canvas texture on a quad in the scene is resampled by
+    the GPU at whatever angle and distance the camera happens to be at, and it
+    also inherits the adaptive pixel ratio — so on a machine that has dropped
+    to the 1.0 tier the labels would blur exactly when the frame rate says the
+    user is already having a worse time.
+
+    `pointer-events: none` so it can never eat a click meant for the canvas
+    underneath it.
+  */
+  #hover {
+    position: fixed;
+    left: 0;
+    top: 0;
+    padding: 8px 12px;
+    background: rgba(12, 15, 26, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.8);
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 14px));
+    transition: opacity 110ms ease;
+    z-index: 6;
+  }
+  #hover.is-visible { opacity: 1; }
+  #hover b { font-weight: 650; }
+  #hover span {
+    display: block;
+    font-size: 11.5px;
+    color: var(--dim);
+    letter-spacing: 0.01em;
+  }
+
+
+  /*
+    The step grid.
+
+    Docked to the bottom rather than floating, because it is a workbench and
+    not a dialogue: it is open for the whole session, the scene has to stay
+    visible above it, and a panel that can be dragged over the instrument will
+    be. `max-height` on the grid rather than `display: none` for the collapsed
+    state, so the transition animates and the layout does not jump.
+  */
+  #seq {
+    position: fixed;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    width: min(1080px, calc(100vw - 24px));
+    background: rgba(14, 17, 30, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px -18px rgba(0, 0, 0, 0.85);
+    color: var(--ink);
+    font-size: 12px;
+    z-index: 7;
+    overflow: hidden;
+  }
+
+  .seq-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .seq-spacer { flex: 1; }
+
+  .seq-btn {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .seq-btn:hover { background: rgba(255, 255, 255, 0.13); }
+  .seq-btn:disabled { opacity: 0.35; cursor: default; }
+  .seq-rec.is-active {
+    background: rgba(255, 95, 82, 0.22);
+    border-color: rgba(255, 95, 82, 0.6);
+    color: #ffb4ad;
+  }
+  .seq-collapse { padding: 6px 10px; }
+
+  .seq-state { color: var(--dim); min-width: 210px; }
+  .seq-state.is-play { color: #6ff0d8; }
+  .seq-state.is-rec { color: #ff8078; }
+  /*
+    The count-in blinks and nothing else does. It is the only transient state
+    in the machine — it lasts one bar and then it is gone — so it is the only
+    one worth spending motion on.
+  */
+  .seq-state.is-countin { color: #ffb257; animation: seq-blink 0.5s steps(2) infinite; }
+  @keyframes seq-blink { 50% { opacity: 0.35; } }
+
+  .seq-field { color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .seq-field select {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 7px;
+    padding: 5px 7px;
+  }
+
+  .seq-grid {
+    padding: 8px 12px 12px;
+    max-height: 260px;
+    overflow: hidden auto;
+    transition: max-height 200ms ease, padding 200ms ease;
+  }
+  #seq:not(.is-open) .seq-grid { max-height: 0; padding-top: 0; padding-bottom: 0; }
+
+  .seq-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .seq-row.is-selected .seq-name { color: var(--ink); }
+
+  .seq-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 132px;
+    flex: none;
+    color: var(--dim);
+  }
+  .seq-head.is-muted { opacity: 0.45; }
+  .seq-name { width: 20px; font-weight: 650; }
+
+  /* Filled-layer indicator: the answer to "which layer has anything in it". */
+  .seq-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    flex: none;
+  }
+  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
+
+  .seq-mini {
+    font: inherit;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--dim);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 5px;
+    padding: 4px 5px;
+    cursor: pointer;
+  }
+  .seq-mini:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); }
+  .seq-arm.is-armed {
+    color: #fff;
+    background: #e2483c;
+    border-color: #ff7b70;
+  }
+  .seq-head.is-solo .seq-mini:nth-of-type(3) { color: #ffd08a; }
+
+  /*
+    The cells are a grid of equal fractions rather than fixed pixels, so a
+    64-step pattern fits the same width a 16-step one does. Cells get narrower
+    rather than the panel getting wider — a horizontally scrolling sequencer
+    hides the second half of the bar, which is exactly the half you are least
+    sure about.
+  */
+  .seq-cells {
+    display: grid;
+    grid-template-columns: repeat(var(--steps), 1fr);
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .seq-cell {
+    height: 22px;
+    padding: 0;
+    font: inherit;
+    font-size: 9px;
+    color: rgba(0, 0, 0, 0.65);
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid transparent;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
+  .seq-cell.is-bar { background: rgba(255, 255, 255, 0.12); }
+  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.4); }
+  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.75); }
+
+  .seq-ruler { margin-bottom: 6px; height: 12px; }
+  .seq-tick {
+    height: 12px;
+    font-size: 9px;
+    line-height: 12px;
+    text-align: center;
+    color: var(--dim);
+    border-radius: 2px;
+  }
+  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
+  .seq-tick.is-bar { background: rgba(255, 255, 255, 0.12); color: var(--ink); }
+
+  @media (max-width: 720px) {
+    .seq-head { width: 108px; }
+    .seq-state { min-width: 0; }
+  }
+
+
+  /*
+    The call to action.
+
+    Sits above the sequencer panel and centred, because it is the only thing on
+    screen worth reading at the moment it appears and the eye goes to the
+    middle. It disappears the instant the slab opens — a prompt that lingers
+    after its instruction has been followed is noise.
+  */
+  #prompt {
+    position: fixed;
+    left: 50%;
+    bottom: 330px;
+    transform: translate(-50%, 8px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 22px;
+    background: rgba(14, 17, 30, 0.90);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    box-shadow: 0 14px 40px -12px rgba(0, 0, 0, 0.85);
+    color: var(--ink);
+    font-size: 14.5px;
+    font-weight: 550;
+    letter-spacing: 0.005em;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 260ms ease, transform 260ms ease;
+    z-index: 8;
+  }
+  #prompt.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  #prompt kbd {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  /*
+    One slow pulse on the dot, and nothing else on this element animates. The
+    prompt has to be noticed without competing with a scene that is already
+    full of moving light — a pulsing dot is the smallest thing that reads as
+    "waiting for you".
+  */
+  #prompt i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--coral);
+    animation: prompt-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes prompt-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.75); }
+  }
+
+  @media (max-width: 720px) {
+    #prompt { bottom: 300px; font-size: 13px; padding: 11px 16px; }
+  }
+
   /* Diagnostics readout */
   #status {
     position: fixed;
     left: 16px;
-    bottom: 14px;
+    top: 14px;
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.08em;
@@ -188,7 +471,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    #overlay, #start { transition: none; }
+    #overlay, #start, #prompt { transition: none; }
+    #prompt i { animation: none; }
   }
 </style>
 </head>
@@ -207,6 +491,12 @@
     </div>
   </div>
 
+  <div id="prompt">
+    <i></i>
+    <span>Crack open the slab &mdash; click it, or hit <kbd>O</kbd> &mdash; and start making noise</span>
+  </div>
+
+  <div id="hover"></div>
   <div id="status"></div>
 
   <script type="module" src="./src/main.js"></script>

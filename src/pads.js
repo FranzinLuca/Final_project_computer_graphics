@@ -593,60 +593,339 @@ function makeClick({ highpass = 2600, decay = 0.016, level = 0.7, pan = 0 }) {
 }
 
 // ---------------------------------------------------------------------------
-// The bank
+// The layout
 //
-// Order matters: index 0-15 maps to the 4x4 grid left-to-right, top-to-bottom,
-// which is the same order as the keyboard map in phase 3 (1234/qwer/asdf/zxcv)
-// and the same order the pad meshes are built in phase 2.
+// Sixteen SLOTS, each a role rather than a sound. Order matters: index 0-15
+// maps to the 4x4 grid left-to-right, top-to-bottom, which is the same order
+// as the keyboard map (1234/qwer/asdf/zxcv) and the same order the pad meshes
+// are built in.
 //
-// The `hue` values colour-code the kit by family, one hue per row (row 1 splits
-// into two, because kicks and backbeat are genuinely different jobs). They were
-// respaced in phase 9: the original set put 0.02, 0.09 and 0.14 within a twelfth
-// of the wheel of each other, so three of the four rows lit up as variations on
-// orange and the grid could not be read at a glance. Row 2 moved to green and
-// row 4 to a cleaner magenta, which spreads the adjacent gaps to roughly a fifth
-// of the wheel each.
+// WHAT BELONGS TO THE LAYOUT AND WHAT BELONGS TO THE KIT
 //
-// Perceived brightness is NOT balanced here — palette.js solves the lightness of
-// each hue so every row emits at the same luminance. Hue is a property of the
-// kit; brightness is a property of the display, and they belong in different
-// files.
+// This split is the whole design of the kit system and it is what makes
+// switching kits safe. A slot's `id`, `hue`, `pan` and choke group are
+// properties of the INSTRUMENT — where the pad sits, what colour it lights,
+// where it sits in the stereo field, which pair of cymbals it belongs to. A
+// slot's `label` and `voice` are properties of the KIT — what sound is loaded
+// into that pad today.
 //
-// The `pan` values are a mixing decision, not a synthesis one, and they follow
-// the convention of a drum kit seen from the drummer's seat: kick and snare
-// dead centre because they carry the pulse and anything off-centre in the low
-// end unbalances the whole mix, toms sweeping left to right as they rise in
-// pitch, cymbals wide.
+// Because the ids never change, a pattern recorded in one kit plays correctly
+// in every other kit. That is not a happy accident, it is the reason the split
+// exists: you can record a groove with the studio kit, switch to techno
+// mid-bar, and hear the same rhythm in different sounds with the sequencer
+// none the wiser. It also means rig.js needs no rebuild on a kit change, since
+// every hue and every printed key letter is unchanged.
+//
+// The `hue` values colour-code by family, one hue per row (row 1 splits,
+// because kicks and backbeat are genuinely different jobs). They were respaced
+// in phase 9: the original set put three rows within a twelfth of the wheel of
+// each other and the grid could not be read at a glance.
+//
+// Perceived brightness is NOT balanced here — palette.js solves the lightness
+// of each hue so every row emits at the same luminance. Hue is a property of
+// the kit's layout; brightness is a property of the display, and they belong
+// in different files.
+//
+// The `pan` values follow the convention of a kit seen from the drummer's
+// seat: kick and snare dead centre because they carry the pulse and anything
+// off-centre in the low end unbalances the mix, toms sweeping left to right as
+// they rise, cymbals wide.
 // ---------------------------------------------------------------------------
 
-export const PADS = [
-  // Row 1 — kicks and backbeat
-  { id: 'kick_deep',   label: 'Kick Deep',  hue: 0.02, voice: makeKick({ from: 150, to: 42, sweep: 0.09, decay: 0.50, click: 0.45, drive: 2.4 }) },
-  { id: 'kick_tight',  label: 'Kick Tight', hue: 0.02, voice: makeKick({ from: 180, to: 58, sweep: 0.05, decay: 0.26, click: 0.70, drive: 2.0 }) },
-  { id: 'snare',       label: 'Snare',      hue: 0.09, voice: makeSnare({ tone: 190, noiseDecay: 0.16, toneDecay: 0.10, bandpass: 1900 }) },
-  { id: 'clap',        label: 'Clap',       hue: 0.09, voice: makeClap({ pan: 0.18 }) },
+export const LAYOUT = [
+  // Row 1 — the pulse and the backbeat
+  { id: 'kick_deep',  hue: 0.02, pan: 0 },
+  { id: 'kick_tight', hue: 0.02, pan: 0 },
+  { id: 'snare',      hue: 0.09, pan: 0 },
+  { id: 'clap',       hue: 0.09, pan: 0.18 },
 
-  // Row 2 — toms and rim
-  { id: 'rim',         label: 'Rim',        hue: 0.30, voice: makeRim({ pan: -0.22 }) },
-  { id: 'tom_low',     label: 'Tom Low',    hue: 0.30, voice: makeTom({ from: 130, to: 78,  sweep: 0.14, decay: 0.34, pan: -0.30 }) },
-  { id: 'tom_mid',     label: 'Tom Mid',    hue: 0.30, voice: makeTom({ from: 190, to: 115, sweep: 0.13, decay: 0.30, pan: 0.00 }) },
-  { id: 'tom_high',    label: 'Tom High',   hue: 0.30, voice: makeTom({ from: 265, to: 160, sweep: 0.12, decay: 0.26, pan: 0.30 }) },
+  // Row 2 — mid percussion
+  { id: 'rim',        hue: 0.30, pan: -0.22 },
+  { id: 'tom_low',    hue: 0.30, pan: -0.30 },
+  { id: 'tom_mid',    hue: 0.30, pan: 0.00 },
+  { id: 'tom_high',   hue: 0.30, pan: 0.30 },
 
-  // Row 3 — cymbals
-  { id: 'hat_closed',  label: 'Hat Closed', hue: 0.52, chokeGroup: 'hh', voice: makeMetal({ highpass: 7800, decay: 0.045, tune: 1.0, level: 0.55, pan: 0.26 }) },
-  { id: 'hat_open',    label: 'Hat Open',   hue: 0.52, chokeGroup: 'hh', voice: makeMetal({ highpass: 6600, decay: 0.42,  tune: 1.0, level: 0.50, pan: 0.26 }) },
-  { id: 'ride',        label: 'Ride',       hue: 0.52, voice: makeMetal({ highpass: 4200, bandpass: 5200, q: 1.1, decay: 0.90, tune: 1.32, level: 0.42, pan: -0.34 }) },
-  { id: 'crash',       label: 'Crash',      hue: 0.52, voice: makeMetal({ highpass: 3000, decay: 1.90, tune: 0.86, swell: 0.020, level: 0.40, pan: 0.40 }) },
+  // Row 3 — cymbals. The two hats share a choke group in every kit, because
+  // that is a physical fact about a pair of cymbals rather than a stylistic
+  // one: they cannot be open and closed at the same instant.
+  { id: 'hat_closed', hue: 0.52, pan: 0.26, chokeGroup: 'hh' },
+  { id: 'hat_open',   hue: 0.52, pan: 0.26, chokeGroup: 'hh' },
+  { id: 'ride',       hue: 0.52, pan: -0.34 },
+  { id: 'crash',      hue: 0.52, pan: 0.40 },
 
-  // Row 4 — percussion and effects
-  { id: 'perc_click',  label: 'Click',      hue: 0.78, voice: makeClick({ pan: -0.15 }) },
-  { id: 'cowbell',     label: 'Cowbell',    hue: 0.78, voice: makeCowbell({ pan: 0.22 }) },
-  { id: 'zap',         label: 'Zap',        hue: 0.78, voice: makeZap({ pan: -0.28 }) },
-  { id: 'sub_drop',    label: 'Sub Drop',   hue: 0.78, voice: makeKick({ from: 110, to: 28, sweep: 0.55, decay: 0.80, click: 0, drive: 1.6 }) },
+  // Row 4 — colour and low end
+  { id: 'perc_click', hue: 0.78, pan: -0.15 },
+  { id: 'cowbell',    hue: 0.78, pan: 0.22 },
+  { id: 'zap',        hue: 0.78, pan: -0.28 },
+  { id: 'sub_drop',   hue: 0.78, pan: 0 },
 ];
 
-/** id -> pad definition, for lookup by name. */
-export const PAD_BY_ID = new Map(PADS.map((p) => [p.id, p]));
+// ---------------------------------------------------------------------------
+// The kits
+//
+// Four sets of sixteen voices over one layout. Each kit gives every slot a
+// label and a synthesis recipe, and nothing else — no kit may move a pad,
+// recolour it, or change what choke group it is in.
+//
+// These are not four random collections. Each is built around what the genre
+// actually asks of a drum machine, and the differences are in the SYNTHESIS
+// parameters rather than in which constructors are used, which is the point of
+// having parameterised constructors at all (D15). Every voice below is one of
+// the same nine recipes with different numbers.
+// ---------------------------------------------------------------------------
 
-/** id -> 0..15 grid index, used by the geometry and the keyboard map. */
-export const PAD_INDEX = new Map(PADS.map((p, i) => [p.id, i]));
+/**
+ * STUDIO — the acoustic-leaning original. Sampled-kit character: short decays,
+ * moderate drive, membranes that sound like membranes.
+ */
+const STUDIO = {
+  kick_deep:  ['Kick Deep',  makeKick({ from: 150, to: 42, sweep: 0.09, decay: 0.50, click: 0.45, drive: 2.4 })],
+  kick_tight: ['Kick Tight', makeKick({ from: 180, to: 58, sweep: 0.05, decay: 0.26, click: 0.70, drive: 2.0 })],
+  snare:      ['Snare',      makeSnare({ tone: 190, noiseDecay: 0.16, toneDecay: 0.10, bandpass: 1900 })],
+  clap:       ['Clap',       makeClap({})],
+  rim:        ['Rim',        makeRim({})],
+  tom_low:    ['Tom Low',    makeTom({ from: 130, to: 78,  sweep: 0.14, decay: 0.34 })],
+  tom_mid:    ['Tom Mid',    makeTom({ from: 190, to: 115, sweep: 0.13, decay: 0.30 })],
+  tom_high:   ['Tom High',   makeTom({ from: 265, to: 160, sweep: 0.12, decay: 0.26 })],
+  hat_closed: ['Hat Closed', makeMetal({ highpass: 7800, decay: 0.045, tune: 1.0, level: 0.55 })],
+  hat_open:   ['Hat Open',   makeMetal({ highpass: 6600, decay: 0.42,  tune: 1.0, level: 0.50 })],
+  ride:       ['Ride',       makeMetal({ highpass: 4200, bandpass: 5200, q: 1.1, decay: 0.90, tune: 1.32, level: 0.42 })],
+  crash:      ['Crash',      makeMetal({ highpass: 3000, decay: 1.90, tune: 0.86, swell: 0.020, level: 0.40 })],
+  perc_click: ['Click',      makeClick({})],
+  cowbell:    ['Cowbell',    makeCowbell({})],
+  zap:        ['Zap',        makeZap({})],
+  sub_drop:   ['Sub Drop',   makeKick({ from: 110, to: 28, sweep: 0.55, decay: 0.80, click: 0, drive: 1.6 })],
+};
+
+/**
+ * REGGAETÓN — the dembow kit.
+ *
+ * The defining sounds are not the kick and snare at all: they are the TIMBALE
+ * and the CAMPANA. So the two tom slots become timbales — short, high, barely
+ * swept, because a timbale shell is shallow and metal-rimmed and does not
+ * pitch-bend the way a floor tom does — and the cowbell is retuned up and
+ * lengthened, since in this style it is a lead voice rather than a garnish.
+ *
+ * The kick is round and short with almost no click: dembow puts the kick and
+ * the snare a sixteenth apart constantly, and a long clicky kick smears into
+ * the snare that follows it. The clap is wide and bright because the snare in
+ * this music is usually a layered clap-and-rim rather than a struck drum.
+ *
+ * Hats are dark and soft — the top end in this genre belongs to the güiro and
+ * the shaker, which is what the click slot becomes.
+ */
+const REGGAETON = {
+  kick_deep:  ['Kick Round', makeKick({ from: 120, to: 47, sweep: 0.11, decay: 0.36, click: 0.16, drive: 1.9 })],
+  kick_tight: ['Kick Short', makeKick({ from: 145, to: 55, sweep: 0.05, decay: 0.20, click: 0.30, drive: 1.7 })],
+  snare:      ['Snare Tite', makeSnare({ tone: 260, noiseDecay: 0.10, toneDecay: 0.055, bandpass: 2400, wires: 0.8 })],
+  clap:       ['Clap Wide',  makeClap({ bandpass: 1500, spread: 0.014, tail: 0.20 })],
+  rim:        ['Timbal Rim', makeRim({ a: 2100, b: 3080, decay: 0.024 })],
+  tom_low:    ['Timbale Lo', makeTom({ from: 250, to: 205, sweep: 0.05, decay: 0.20, level: 0.9 })],
+  tom_mid:    ['Timbale Hi', makeTom({ from: 340, to: 285, sweep: 0.04, decay: 0.17, level: 0.9 })],
+  tom_high:   ['Conga',      makeTom({ from: 430, to: 380, sweep: 0.03, decay: 0.14, level: 0.85 })],
+  hat_closed: ['Hat Soft',   makeMetal({ highpass: 6800, decay: 0.038, tune: 0.94, level: 0.42 })],
+  hat_open:   ['Hat Loose',  makeMetal({ highpass: 5600, decay: 0.30, tune: 0.94, level: 0.38 })],
+  ride:       ['Cascara',    makeMetal({ highpass: 3400, bandpass: 4200, q: 2.2, decay: 0.30, tune: 1.5, level: 0.40 })],
+  crash:      ['Crash',      makeMetal({ highpass: 2600, decay: 1.60, tune: 0.80, swell: 0.018, level: 0.42 })],
+  // A güiro scrape: broadband noise with the low end taken out, long enough to
+  // read as a stroke across the ridges rather than as a tick.
+  perc_click: ['Guiro',      makeClick({ highpass: 1800, decay: 0.075, level: 0.55 })],
+  cowbell:    ['Campana',    makeCowbell({ a: 620, b: 925, decay: 0.42, level: 1.0 })],
+  zap:        ['Riser',      makeZap({ from: 300, to: 1400, sweep: 0.30, decay: 0.34, level: 0.6 })],
+  sub_drop:   ['Sub',        makeKick({ from: 90, to: 38, sweep: 0.30, decay: 0.60, click: 0, drive: 1.4 })],
+};
+
+/**
+ * TECHNO — the 909-derived kit.
+ *
+ * Everything is longer, louder and more saturated. The kick is the whole
+ * record: a long decay with heavy drive, so it occupies the bar rather than
+ * punctuating it, and the sweep is slow because a 909 kick's pitch envelope is
+ * what gives it the "thump into hum" shape that survives on a big system.
+ *
+ * The hats are the other half of the identity, and they are bright to the
+ * point of being harsh — a 909 hat is six square waves through a highpass, and
+ * the tune value here pushes the partial bank up so it sits above everything
+ * else in the mix rather than inside it.
+ *
+ * The clap has a long tail because it is doing the job a reverb would, and the
+ * zap becomes an acid blip: a fast downward sweep that reads as a resonant
+ * filter being plucked.
+ */
+const TECHNO = {
+  kick_deep:  ['Kick 909',   makeKick({ from: 210, to: 45, sweep: 0.13, decay: 0.62, click: 0.55, drive: 3.6 })],
+  kick_tight: ['Kick Punch', makeKick({ from: 240, to: 62, sweep: 0.04, decay: 0.28, click: 0.85, drive: 3.0 })],
+  snare:      ['Snare 909',  makeSnare({ tone: 220, noiseDecay: 0.22, toneDecay: 0.08, bandpass: 2600, wires: 1.05 })],
+  clap:       ['Clap Long',  makeClap({ bandpass: 1250, spread: 0.010, tail: 0.30, level: 1.05 })],
+  rim:        ['Rimshot',    makeRim({ a: 1900, b: 2900, decay: 0.020 })],
+  tom_low:    ['Tom 909 Lo', makeTom({ from: 150, to: 70,  sweep: 0.20, decay: 0.42 })],
+  tom_mid:    ['Tom 909 Md', makeTom({ from: 215, to: 105, sweep: 0.18, decay: 0.36 })],
+  tom_high:   ['Tom 909 Hi', makeTom({ from: 300, to: 150, sweep: 0.16, decay: 0.30 })],
+  hat_closed: ['Hat Tight',  makeMetal({ highpass: 9200, decay: 0.032, tune: 1.18, level: 0.60 })],
+  hat_open:   ['Hat Open',   makeMetal({ highpass: 7600, decay: 0.60, tune: 1.18, level: 0.52 })],
+  ride:       ['Ride Bell',  makeMetal({ highpass: 5200, bandpass: 6800, q: 1.6, decay: 1.10, tune: 1.44, level: 0.40 })],
+  crash:      ['Crash Big',  makeMetal({ highpass: 2800, decay: 2.60, tune: 0.82, swell: 0.028, level: 0.44 })],
+  perc_click: ['Tick',       makeClick({ highpass: 4200, decay: 0.012, level: 0.75 })],
+  cowbell:    ['Cowbell',    makeCowbell({ a: 587, b: 845, decay: 0.26, level: 0.9 })],
+  zap:        ['Acid Blip',  makeZap({ from: 1600, to: 180, sweep: 0.09, decay: 0.24, level: 0.85 })],
+  sub_drop:   ['Sub Rumble', makeKick({ from: 70, to: 32, sweep: 0.80, decay: 1.40, click: 0, drive: 1.3 })],
+};
+
+/**
+ * DRILL — the 808 kit.
+ *
+ * The organising fact of this style is that the KICK AND THE BASS ARE THE SAME
+ * SOUND. An 808 is a long sine with a pitch envelope, played melodically, and
+ * it sits in the slot a bassline would occupy. So `sub_drop` becomes a long
+ * gliding 808 with a 1.6-second decay and a wide sweep, and the kicks above it
+ * are short and clicky — their job is the transient, with the 808 carrying the
+ * weight underneath.
+ *
+ * The hats are the other signature: drill rolls run at 32nd and 64th
+ * subdivisions, so the closed hat has to be very short indeed or the roll
+ * becomes a wash. 22 ms, which at 140 bpm is under a sixteenth of a beat.
+ *
+ * The snare is thin and high because it is usually a rimshot or a clap layered
+ * high above the 808 rather than a struck drum in the middle of the mix, and
+ * the toms are tuned as 808 toms — sine-ish and pitched, not membranes.
+ */
+const DRILL = {
+  kick_deep:  ['Kick 808',   makeKick({ from: 200, to: 50, sweep: 0.045, decay: 0.30, click: 0.80, drive: 2.6 })],
+  kick_tight: ['Kick Tap',   makeKick({ from: 230, to: 66, sweep: 0.03, decay: 0.16, click: 0.95, drive: 2.2 })],
+  snare:      ['Snare Thin', makeSnare({ tone: 320, noiseDecay: 0.09, toneDecay: 0.04, bandpass: 3100, wires: 0.75, level: 0.9 })],
+  clap:       ['Clap Tight', makeClap({ bandpass: 1700, spread: 0.007, tail: 0.11 })],
+  rim:        ['Rim Click',  makeRim({ a: 2400, b: 3600, decay: 0.014 })],
+  tom_low:    ['808 Tom Lo', makeTom({ from: 120, to: 96,  sweep: 0.10, decay: 0.50 })],
+  tom_mid:    ['808 Tom Md', makeTom({ from: 175, to: 140, sweep: 0.09, decay: 0.44 })],
+  tom_high:   ['808 Tom Hi', makeTom({ from: 240, to: 195, sweep: 0.08, decay: 0.38 })],
+  hat_closed: ['Hat Roll',   makeMetal({ highpass: 8600, decay: 0.022, tune: 1.10, level: 0.50 })],
+  hat_open:   ['Hat Open',   makeMetal({ highpass: 7000, decay: 0.24, tune: 1.10, level: 0.44 })],
+  ride:       ['Ride Dark',  makeMetal({ highpass: 3600, bandpass: 4600, q: 1.3, decay: 0.70, tune: 1.16, level: 0.36 })],
+  crash:      ['Crash Dark', makeMetal({ highpass: 2400, decay: 1.70, tune: 0.74, swell: 0.024, level: 0.38 })],
+  perc_click: ['Stick',      makeClick({ highpass: 3400, decay: 0.010, level: 0.65 })],
+  cowbell:    ['Bell Hi',    makeCowbell({ a: 780, b: 1180, decay: 0.18, level: 0.7 })],
+  zap:        ['Slide Down', makeZap({ from: 420, to: 55, sweep: 0.28, decay: 0.42, level: 0.8 })],
+  // The 808 proper: nearly two seconds, no click at all, and a long glide.
+  sub_drop:   ['808 Slide',  makeKick({ from: 130, to: 30, sweep: 0.70, decay: 1.60, click: 0, drive: 1.5 })],
+};
+
+/**
+ * The kit table. `bpm` is the tempo the style lives at, offered when the kit is
+ * chosen rather than forced — switching kits should not silently retempo a
+ * pattern somebody is in the middle of recording.
+ */
+export const KITS = [
+  { id: 'studio',    name: 'Studio',     bpm: 92,  description: 'Acoustic-leaning kit. Short decays, real membranes.', voices: STUDIO },
+  { id: 'reggaeton', name: 'Reggaetón',  bpm: 96,  description: 'Dembow kit: timbales, campana, güiro, round kick.', voices: REGGAETON },
+  { id: 'techno',    name: 'Techno',     bpm: 132, description: '909-derived. Long saturated kick, harsh hats, acid blip.', voices: TECHNO },
+  { id: 'drill',     name: 'Drill',      bpm: 142, description: '808 kit. Gliding sub bass, 22 ms hat for rolls.', voices: DRILL },
+];
+
+export const KIT_BY_ID = new Map(KITS.map((k) => [k.id, k]));
+
+/**
+ * Merge the layout with a kit's voices into the sixteen pad definitions.
+ *
+ * The `pan` from the layout is injected into the voice at BUILD time rather
+ * than being passed by each kit, which is why no kit above writes a pan value:
+ * stereo placement is a property of where the pad sits on the instrument, and
+ * letting a kit override it would let one kit put its snare off-centre and
+ * quietly break the mix in a way nobody would think to look for.
+ */
+/**
+ * Wrap a voice so its output passes through a panner on the way to the bus.
+ *
+ * The constructors each take a `pan` option and build their own panner, which
+ * worked when the pan value was written next to the recipe. Now that pan
+ * belongs to the layout and the recipe belongs to the kit, the two are
+ * assembled from different places, so the placement is applied here instead —
+ * a panner in front of whatever destination the caller passed, with the voice
+ * rendered into it.
+ *
+ * One extra node per hit, built and discarded with the rest of the graph,
+ * which is the pattern every voice already follows (D16). Centre-panned slots
+ * skip the wrapper entirely rather than building a panner set to zero.
+ */
+function panned(voice, pan) {
+  if (!pan) return voice;
+  return (ctx, dest, time, velocity) => {
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    panner.connect(dest);
+    return voice(ctx, panner, time, velocity);
+  };
+}
+
+function buildKit(kit) {
+  return LAYOUT.map((slot) => {
+    const entry = kit.voices[slot.id];
+    if (!entry) {
+      console.error(`[pads] kit "${kit.id}" has no voice for slot "${slot.id}"`);
+      return null;
+    }
+    const [label, voice] = entry;
+    return {
+      id: slot.id,
+      label,
+      hue: slot.hue,
+      pan: slot.pan,
+      chokeGroup: slot.chokeGroup,
+      voice: panned(voice, slot.pan),
+    };
+  }).filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
+// The active kit
+//
+// `PADS`, `PAD_BY_ID` and `PAD_INDEX` are `let` rather than `const`, which is
+// unusual enough to justify.
+//
+// ES module bindings are LIVE: an importer holds a reference to the binding,
+// not a copy of the value, so reassigning here updates every module that
+// imported it — rig.js, audio.js, interaction.js, mascot.js and sequencer.js
+// all see the new kit with no notification and no re-import. That is exactly
+// the behaviour wanted, and it is a property of the module system rather than
+// a trick: there is one authoritative kit and everybody reads it.
+//
+// The alternative was a getter function called at every use site, which would
+// mean editing five modules to ask for something they already have.
+//
+// Note what does NOT change on a kit switch: ids, hues, pan, choke groups,
+// grid positions and key letters. So no geometry is rebuilt, no material is
+// re-tinted, and every pattern in every layer keeps playing.
+// ---------------------------------------------------------------------------
+
+let activeKit = KITS[0];
+
+export let PADS = buildKit(activeKit);
+export let PAD_BY_ID = new Map(PADS.map((p) => [p.id, p]));
+export let PAD_INDEX = new Map(PADS.map((p, i) => [p.id, i]));
+
+export function getKit() { return activeKit; }
+
+/**
+ * Swap the loaded kit.
+ *
+ * Takes effect on the NEXT hit, not on notes already scheduled: `playVoice`
+ * looks the pad up at the moment it builds the node graph, and the scheduler
+ * commits up to 100 ms ahead. So a kit change lands within a sixteenth at any
+ * sensible tempo, and the handful of notes already promised to the audio clock
+ * finish in the old kit rather than being cancelled — which is both easier and
+ * more musical than trying to rewrite committed events.
+ *
+ * @returns {object | null} the kit now loaded
+ */
+export function setKit(id) {
+  const kit = KIT_BY_ID.get(id);
+  if (!kit) {
+    console.error(`[pads] no kit named "${id}"`);
+    return null;
+  }
+
+  activeKit = kit;
+  PADS = buildKit(kit);
+  PAD_BY_ID = new Map(PADS.map((p) => [p.id, p]));
+  PAD_INDEX = new Map(PADS.map((p, i) => [p.id, i]));
+  return kit;
+}

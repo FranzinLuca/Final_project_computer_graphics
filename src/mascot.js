@@ -277,14 +277,33 @@ export function buildMascot({ scale = 1.2 } = {}) {
   const irisTarget = new THREE.Color(PALETTE.mascotIris);
   let flash = 0;
 
+  /**
+   * Swing an arm, without a pad being involved.
+   *
+   * Extracted so the intro can make Otto press something. The alternative was
+   * for the intro to publish a fake `pad:hit`, which would have been shorter
+   * and wrong: rig.js would flash a pad that has not been struck, and the
+   * event log would show a note that was never played. An animation call and
+   * a musical event are different things and should not share a channel just
+   * because they happen to move the same arm.
+   *
+   * @param {number} velocity
+   * @param {number | null} side  -1 or 1 to choose a specific arm
+   */
+  function strike(velocity = 1, side = null) {
+    const arm = side === null
+      ? arms[nextArm++ % arms.length]
+      : arms.find((a) => a.side === side) ?? arms[0];
+
+    if (arm) arm.strike = Math.max(arm.strike, velocity);
+    flash = Math.max(flash, velocity);
+    return arm;
+  }
+
   bus.on('pad:hit', ({ padId, velocity = 1 }) => {
     // Alternate hands. A drummer who strikes everything with the same arm
     // reads as a machine, which is the one thing this machine must not do.
-    const arm = arms[nextArm % arms.length];
-    nextArm += 1;
-    if (arm) arm.strike = Math.max(arm.strike, velocity);
-
-    flash = Math.max(flash, velocity);
+    strike(velocity);
 
     // The eyes take the colour of the pad that fired. The hue is already
     // carried by the pad definition and already drives the rim glow on the
@@ -383,5 +402,10 @@ export function buildMascot({ scale = 1.2 } = {}) {
     materials.iris.emissiveIntensity = 0.85 + flash * 2.2;
   }
 
-  return { root, update, materials };
+  /** Point the head somewhere in its own local space, for the intro. */
+  function look(x, y) {
+    lookTarget.set(x, y);
+  }
+
+  return { root, update, materials, strike, look, arms };
 }

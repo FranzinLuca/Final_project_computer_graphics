@@ -184,6 +184,61 @@ const AUTHORED = [
     ],
   },
   {
+    name: 'Dembow',
+    bpm: 96,
+    description: 'The reggaetón pattern: kick on the beat, snare on the "and-a".',
+    layers: [
+      // The dembow is defined by where the SNARE is, not the kick. The kick
+      // holds a plain four while the backbeat lands on the third and fourth
+      // sixteenth of alternate beats — the 3+3+2 feel underneath everything in
+      // the genre.
+      { kick_deep:  'X...X...X...X...' },
+      { snare:      '...x..x....x..x.',
+        clap:       '....X.......X...' },
+      { hat_closed: 'x.o.x.o.x.o.x.o.' },
+      { cowbell:    '..o...o...o...o.',
+        perc_click: '......o.......o.' },
+    ],
+  },
+  {
+    name: 'Four Floor Techno',
+    bpm: 132,
+    description: 'Kick every beat, open hat on every off, clap on the backbeat.',
+    layers: [
+      { kick_deep:  'X...X...X...X...',
+        sub_drop:   'X.......X.......' },
+      { clap:       '....X.......X...',
+        rim:        '..........o.....' },
+      // Closed on the beat, open on the off. The two never coincide, so the
+      // choke group is never asked to cut something that has not yet rung.
+      { hat_closed: 'x...x...x...x...',
+        hat_open:   '..x...x...x...x.' },
+      { zap:        '...............x',
+        ride:       '............o...' },
+    ],
+  },
+  {
+    name: 'Drill',
+    bpm: 142,
+    description: 'Sliding 808, sparse kick, hat triplets against the snare on 3.',
+    layers: [
+      // The 808 carries the bar and the kicks are transients on top of it,
+      // which is why they do not land together: doubling them would stack two
+      // low sweeps and lose both.
+      { kick_deep:  'X.....x.........',
+        sub_drop:   '..........X.....' },
+      { snare:      '........X.......',
+        clap:       '........o.......' },
+      // The roll: three even hits inside one beat, then back to sixteenths.
+      // Written at sixteenth resolution it is the nearest legal approximation,
+      // which is worth being honest about — a true triplet needs a pattern
+      // length divisible by three and this grid is not.
+      { hat_closed: 'x.xxx.x.x.xxx.xx' },
+      { perc_click: '....o.......o...',
+        zap:        '..............x.' },
+    ],
+  },
+  {
     name: 'Half Time',
     bpm: 76,
     description: 'Snare on 3 only, rolling hats, sub landing under the backbeat.',
@@ -227,6 +282,12 @@ export function loadPreset(audio, name, { withBpm = true } = {}) {
     console.error(`[presets] no preset named "${name}"`);
     return false;
   }
+
+  // The loop length has to move with the pattern, or a 16-step preset loaded
+  // while the transport is set to four bars would play once and leave three
+  // bars of silence behind it. The preset knows its own length; the engine is
+  // told, rather than assuming.
+  if (audio.setPatternLength) audio.setPatternLength(PATTERN_LENGTH);
 
   preset.patterns.forEach((pattern, index) => {
     audio.loadPattern(index, JSON.parse(JSON.stringify(pattern)));

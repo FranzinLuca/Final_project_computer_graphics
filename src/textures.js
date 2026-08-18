@@ -392,24 +392,38 @@ export function toonRamp(levels = [0.45, 0.62, 0.80, 1.0]) {
 // ---------------------------------------------------------------------------
 
 /**
- * A white radial falloff on transparent — one texture, two jobs.
+ * A radial falloff, written into the COLOUR channels and not the alpha.
  *
- * It is the sprite for a dust mote and the alpha for a contact shadow, which
- * sound like unrelated things and are the same thing: a soft disc whose alpha
- * falls off from the centre. One is added to the frame and one is subtracted
- * from it, and that difference lives entirely in the material's blending mode,
- * not in the image. Generating it twice with two names would be two things to
- * keep in step for no gain.
+ * THE BUG THIS FIXES, because it is a good one and worth keeping in the log:
+ * the contact shadows rendered as hard black SQUARES. The texture looked
+ * correct — a soft disc fading to nothing — and the material was correct, and
+ * the result was a rectangle.
  *
- * `exponent` shapes the falloff. 2 is a broad haze, useful for a mote seen out
- * of focus; 3.5 concentrates the alpha near the centre and leaves a long thin
- * tail, which is what a contact shadow does — dark where the object nearly
- * touches the ground and vanishing well before its silhouette ends.
+ * The cause is one line inside three's shader library. `alphaMap` is sampled
+ * as:
  *
- * Drawn with an explicit per-pixel curve rather than a canvas radial gradient
- * because a CSS-style gradient interpolates its stops in premultiplied sRGB,
- * and the resulting falloff has a visible ring in it at low alpha — which on a
- * near-black floor is precisely the range this is used in.
+ *   diffuseColor.a *= texture2D( alphaMap, vAlphaMapUv ).g;
+ *
+ * It reads the GREEN channel. The first version of this function put the
+ * falloff in the ALPHA channel and left RGB at a flat 255, which is the
+ * obvious way to build a mask and is exactly wrong here: green was 1.0
+ * everywhere, so the mask multiplied every fragment by one and the plane drew
+ * as a full opaque quad.
+ *
+ * The failure mode is instructive. Nothing errors, nothing warns, and
+ * inspecting the texture in isolation shows the shape you intended — the
+ * information is present in the file and being read from the wrong place. This
+ * is the same class of mistake as tagging a normal map sRGB (D42): a channel
+ * convention silently disagreed with, producing output that is wrong in a way
+ * that looks like a different bug entirely.
+ *
+ * So the falloff goes into R, G and B, alpha stays at 255, and the texture is
+ * left at `NoColorSpace` — a mask is data, not a colour, and letting the
+ * renderer gamma-decode it would bend the falloff curve into a different one.
+ *
+ * `exponent` shapes the ramp. 3.5 concentrates the darkening near the centre
+ * and leaves a long thin tail, which is what contact occlusion does: dark
+ * where the object nearly touches, vanishing well before its silhouette ends.
  */
 export function radialFalloffTexture(size = 64, exponent = 2.0) {
   const data = new Uint8Array(size * size * 4);
@@ -420,26 +434,33 @@ export function radialFalloffTexture(size = 64, exponent = 2.0) {
       const dx = (x - centre) / centre;
       const dy = (y - centre) / centre;
       // Clamped so the disc reaches zero exactly at the texture edge; without
-      // the clamp the corners carry alpha and a "soft" sprite renders as a
-      // faintly visible square.
+      // the clamp the corners carry mask value and a "soft" shadow renders as
+      // a faintly visible square — a milder version of the same fault.
       const r = Math.min(1, Math.sqrt(dx * dx + dy * dy));
-      const alpha = Math.pow(1 - r, exponent);
+      const value = Math.round(Math.pow(1 - r, exponent) * 255);
 
       const i = (y * size + x) * 4;
-      data[i] = data[i + 1] = data[i + 2] = 255;
-      data[i + 3] = Math.round(alpha * 255);
+      data[i] = data[i + 1] = data[i + 2] = value;
+      data[i + 3] = 255;
     }
   }
 
   const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
-  // Colour, so sRGB — the alpha channel is untouched by the colour space
-  // conversion, which is the only channel that carries information here.
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.colorSpace = THREE.NoColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
+  // The disc must not tile. Without this the bilinear filter at the edge wraps
+  // to the opposite side and the falloff never quite reaches zero, leaving a
+  // faint seam along all four borders of the quad.
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
   return texture;
 }
+
+// ---------------------------------------------------------------------------
+// Environment and labels
+// ---------------------------------------------------------------------------
 
 /**
  * A vertical two-stop gradient, used as the scene background.
@@ -520,6 +541,210 @@ export function studioEnvironmentTexture(width = 512) {
   texture.mapping = THREE.EquirectangularReflectionMapping;
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+// ---------------------------------------------------------------------------
+// Panel graphics: silkscreen, knob collars, and the display
+//
+// Three dynamic canvas textures, and a genuinely different KIND of texture
+// from the noise-derived maps above. Those are surface properties, computed
+// once and never touched again. These are drawn with the 2D canvas API, some
+// are redrawn while the program runs, and what they carry is INFORMATION
+// rather than material.
+// ---------------------------------------------------------------------------
+
+/**
+ * Text drawn white on transparent, at whatever aspect the caller needs.
+ *
+ * The generalisation of glyphTexture. Premultiplied alpha is off (the three
+ * default), so the transparent margin must still be WHITE rather than black —
+ * a black transparent margin bleeds dark fringes into the glyph edges when the
+ * mipmap chain averages colour and alpha independently.
+ */
+export function textTexture(text, {
+  width = 256,
+  height = 64,
+  size = 34,
+  weight = 600,
+  tracking = 0.14,
+  align = 'center',
+} = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const g = canvas.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0)';
+  g.fillRect(0, 0, width, height);
+
+  g.fillStyle = '#ffffff';
+  g.font = `${weight} ${size}px ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif`;
+  g.textAlign = align;
+  g.textBaseline = 'middle';
+
+  // Letter spacing by hand rather than via the `letterSpacing` canvas property,
+  // which is recent and unevenly supported. Tracked-out capitals are what
+  // makes a legend read as screen printing rather than as a caption.
+  const spacing = size * tracking;
+  const glyphs = [...text];
+  const total = glyphs.reduce((sum, ch) => sum + g.measureText(ch).width + spacing, -spacing);
+
+  let x = align === 'center' ? (width - total) / 2 : width * 0.04;
+  for (const ch of glyphs) {
+    g.fillText(ch, x + g.measureText(ch).width / 2, height / 2);
+    x += g.measureText(ch).width + spacing;
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+/**
+ * A knob collar: a 270-degree arc track, a fill showing the current value, and
+ * the parameter name printed underneath.
+ *
+ * Returns a `draw` function rather than a finished texture, because the fill
+ * changes whenever the knob is turned. It is redrawn ON CHANGE and not per
+ * frame — six canvases at 128 square would be a real cost at 60 Hz and are
+ * free at the rate a hand can turn a knob.
+ *
+ * 270 degrees because that is the travel of a real potentiometer and it is
+ * already the sweep interaction.js applies to the knob mesh. The arc and the
+ * cap turn through exactly the same angle, from the same value, so the printed
+ * scale cannot disagree with the thing it is a scale for.
+ */
+export function knobCollarTexture(label, { size = 160, tint = '#ffb257' } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+
+  const cx = size / 2;
+  const cy = size * 0.46;
+  const radius = size * 0.375;
+  const width = size * 0.055;
+
+  // Canvas angles run clockwise from +X. The sweep is centred on straight
+  // down-screen and opens 135 degrees each way, so the dead zone sits at the
+  // bottom where a real pot's stop is.
+  const START = Math.PI * 0.75;
+  const SWEEP = Math.PI * 1.5;
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+
+  function draw(value) {
+    g.clearRect(0, 0, size, size);
+
+    g.lineCap = 'round';
+
+    // Unlit track.
+    g.strokeStyle = 'rgba(255,255,255,0.16)';
+    g.lineWidth = width;
+    g.beginPath();
+    g.arc(cx, cy, radius, START, START + SWEEP);
+    g.stroke();
+
+    // Lit fill. Drawn even at zero as a short stub, so the collar never looks
+    // like a broken control — a scale with nothing on it reads as unpowered.
+    const t = Math.min(1, Math.max(0, value));
+    g.strokeStyle = tint;
+    g.lineWidth = width;
+    g.beginPath();
+    g.arc(cx, cy, radius, START, START + Math.max(0.04, SWEEP * t));
+    g.stroke();
+
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.font = `600 ${Math.round(size * 0.115)}px ui-sans-serif, system-ui, Arial, sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(label.toUpperCase(), cx, size * 0.93);
+
+    texture.needsUpdate = true;
+  }
+
+  draw(0.5);
+  return { texture, draw, canvas };
+}
+
+/**
+ * The panel display.
+ *
+ * Redrawn on transport events and on the step, which at 200 bpm is thirteen
+ * times a second — well under a frame's budget for a 256x128 canvas, and
+ * nowhere near the per-frame redraw that would make a canvas texture a bad
+ * idea. `needsUpdate` triggers a GPU upload each time, which is the actual
+ * cost being managed here.
+ *
+ * It earns its place at the oral more than it does in the render: it makes the
+ * sequencer's internal state — the tempo, whether it is running, which
+ * sixteenth is sounding — visible ON THE INSTRUMENT rather than only in a
+ * debug panel, which is the difference between a model of a drum machine and
+ * a drum machine.
+ */
+export function displayTexture({ width = 256, height = 128 } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const g = canvas.getContext('2d');
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+
+  function draw({ bpm = 100, running = false, step = 0, armed = null, kit = '' } = {}) {
+    g.fillStyle = '#07131a';
+    g.fillRect(0, 0, width, height);
+
+    // Scanline tint, one pass. A perfectly flat panel reads as a sticker; a
+    // faint horizontal structure reads as a screen.
+    g.fillStyle = 'rgba(255,255,255,0.025)';
+    for (let y = 0; y < height; y += 4) g.fillRect(0, y, width, 1);
+
+    g.fillStyle = '#6ff0d8';
+    g.font = '700 54px ui-monospace, SFMono-Regular, Menlo, monospace';
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    g.fillText(String(Math.round(bpm)).padStart(3, ' '), 14, 62);
+
+    g.font = '600 18px ui-sans-serif, system-ui, Arial, sans-serif';
+    g.fillText('BPM', 128, 62);
+
+    g.fillStyle = running ? '#6ff0d8' : 'rgba(111,240,216,0.30)';
+    g.fillText(running ? 'RUN' : 'STOP', 128, 36);
+
+    if (armed !== null) {
+      g.fillStyle = '#ff6b5e';
+      g.fillText(`REC ${armed + 1}`, 190, 36);
+    }
+
+    // The loaded kit, on the instrument itself. Four kits share one grid, one
+    // set of hues and one keyboard map, so without this the only thing that
+    // tells you which is loaded is the sound — which is fine while you are
+    // listening and useless in a screenshot.
+    if (kit) {
+      g.fillStyle = 'rgba(111,240,216,0.62)';
+      g.font = '600 16px ui-sans-serif, system-ui, Arial, sans-serif';
+      g.fillText(kit.toUpperCase(), 14, 88);
+    }
+
+    // Sixteen step lamps, the current one filled. The row is the pattern, so
+    // the display is showing the same data the pad grid is flashing — one
+    // state, two views.
+    const pitch = (width - 28) / 16;
+    for (let i = 0; i < 16; i++) {
+      const on = running && i === step;
+      g.fillStyle = on ? '#6ff0d8' : (i % 4 === 0 ? 'rgba(111,240,216,0.34)' : 'rgba(111,240,216,0.14)');
+      g.fillRect(14 + i * pitch, height - 34, pitch - 4, on ? 18 : 12);
+    }
+
+    texture.needsUpdate = true;
+  }
+
+  draw({});
+  return { texture, draw };
 }
 
 /**

@@ -44,6 +44,13 @@ import { bus } from './events.js';
 // ---------------------------------------------------------------------------
 // Shots
 //
+// Every radius here was multiplied by 1.35 when the instrument was scaled to
+// 1.5, and the two numbers differ on purpose. Scaling the radius by the same
+// 1.5 would keep the instrument at exactly the same size on screen, which is
+// the opposite of the intent — the point of making it bigger was for it to
+// FILL more of the frame. Pulling back by less than the object grew is what
+// converts a scale change into a framing change.
+//
 // Stored as spherical coordinates about a target, not as positions, because
 // that is the space the transitions run in — storing Cartesian positions would
 // mean converting at the start of every move and losing the authored radius to
@@ -72,18 +79,18 @@ export const SHOTS = [
   {
     name: 'Overview',
     description: 'The default framing. Reads the whole instrument and the room.',
-    radius: 1.20,
+    radius: 1.62,
     phi: 1.09,
     theta: 0.60,
-    target: [0.02, 0.05, 0],
+    target: [0.03, 0.08, 0],
   },
   {
     name: 'Player',
     description: 'Low and square on, roughly where a player stands.',
-    radius: 0.86,
+    radius: 1.16,
     phi: 1.28,
     theta: 0.04,
-    target: [0, 0.06, 0],
+    target: [0, 0.09, 0],
   },
   {
     name: 'Mechanism',
@@ -93,10 +100,10 @@ export const SHOTS = [
     // demonstrating the graded pillar, and it is worth having a button for it
     // rather than hoping to orbit there smoothly during a defence.
     description: 'Side-on and low, where the wing fold reads clearly.',
-    radius: 1.02,
+    radius: 1.38,
     phi: 1.36,
     theta: 1.45,
-    target: [0, 0.09, 0],
+    target: [0, 0.13, 0],
   },
   {
     name: 'Room',
@@ -106,10 +113,10 @@ export const SHOTS = [
     // at all. It earns its place twice over now that the stacks are what
     // frames the instrument: the wide shot is the one that reads as a stage.
     description: 'Pulled back to the stacks and the cyc.',
-    radius: 2.45,
+    radius: 2.70,
     phi: 1.02,
     theta: 0.78,
-    target: [0, 0.30, 0],
+    target: [0, 0.34, 0],
   },
 ];
 
@@ -222,7 +229,22 @@ export function initCamera({ camera, controls, maxOrbit }) {
       console.error(`[camera] no shot named "${name}"`);
       return;
     }
+    moveTo(shot, duration, name);
+  }
 
+  /**
+   * Move to an arbitrary spherical framing.
+   *
+   * `goTo` is now a thin wrapper over this. The authored shots were the only
+   * destinations until the power-on sequence needed to frame a moving robot
+   * and then pull back to the stage — neither of which is a shot anybody would
+   * want a button for, and both of which are the same operation with different
+   * numbers.
+   *
+   * @param {{radius: number, phi: number, theta: number, target: number[]}} shot
+   */
+  function moveTo(shot, duration = 1100, name = 'custom') {
+    stopFollowing();
     stopActive();
     sync();
 
@@ -271,11 +293,69 @@ export function initCamera({ camera, controls, maxOrbit }) {
    * camera rather than snapping back.
    */
   function release() {
+    stopFollowing();
     if (!transitioning) return;
     stopActive();
     sync();
     transitioning = false;
     controls.enabled = true;
+  }
+
+  // -----------------------------------------------------------------------
+  // Following a moving object
+  //
+  // A third writer on the camera, and it obeys the same rule as the other two:
+  // exactly one drives at any instant, and the handover is explicit.
+  //
+  // The reason it exists is that a scripted camera move cannot frame a moving
+  // subject. A tween interpolates towards a fixed destination, so aiming one
+  // at a robot who is driving across the floor puts the camera where the robot
+  // WAS by the time it arrives. Following inverts the problem: the orbit
+  // parameters are held constant and the TARGET is what moves, so the subject
+  // stays centred by construction rather than by timing.
+  // -----------------------------------------------------------------------
+
+  /** @type {null | {object: THREE.Object3D, ty: number, ease: number}} */
+  let following = null;
+  const followPoint = new THREE.Vector3();
+
+  /**
+   * Orbit a moving object at a fixed framing.
+   *
+   * The target is LERPED towards the object rather than snapped to it, and the
+   * rate is deliberately slow. A camera pinned exactly to a moving subject
+   * transfers every bump in the subject's motion into the frame, so the world
+   * appears to shake while the subject sits still — the classic mistake in a
+   * follow cam. Trailing slightly means the subject drifts a little within the
+   * frame, which is what a real operator's panning does and what makes the
+   * motion read as observed rather than as welded on.
+   *
+   * @param {THREE.Object3D} object
+   * @param {{radius: number, phi: number, theta: number, ty?: number, ease?: number}} spec
+   */
+  function followObject(object, spec) {
+    stopActive();
+    controls.enabled = false;
+    transitioning = false;
+
+    state.radius = Math.min(spec.radius, maxRadius);
+    state.phi = clampPhi(spec.phi);
+    state.theta = spec.theta;
+
+    object.getWorldPosition(followPoint);
+    state.tx = followPoint.x;
+    state.ty = followPoint.y + (spec.ty ?? 0.16);
+    state.tz = followPoint.z;
+
+    following = { object, ty: spec.ty ?? 0.16, ease: spec.ease ?? 3.2 };
+    apply();
+  }
+
+  function stopFollowing() {
+    if (!following) return;
+    following = null;
+    controls.enabled = true;
+    sync();
   }
 
   /**
@@ -285,7 +365,20 @@ export function initCamera({ camera, controls, maxOrbit }) {
    * running this module drives the camera and the controls are inert; the rest
    * of the time the controls drive and this module does nothing at all.
    */
-  function update() {
+  function update(dt = 0.016) {
+    if (following) {
+      following.object.getWorldPosition(followPoint);
+      // Framerate-independent approach, the same form the lighting envelopes
+      // use. A bare lerp factor would make the camera trail further behind on
+      // a slow machine than on a fast one.
+      const k = 1 - Math.exp(-dt * following.ease);
+      state.tx += (followPoint.x - state.tx) * k;
+      state.ty += (followPoint.y + following.ty - state.ty) * k;
+      state.tz += (followPoint.z - state.tz) * k;
+      apply();
+      return;
+    }
+
     if (transitioning) apply();
     else controls.update();
   }
@@ -306,6 +399,9 @@ export function initCamera({ camera, controls, maxOrbit }) {
   return {
     update,
     goTo,
+    moveTo,
+    followObject,
+    stopFollowing,
     release,
     sync,
     isTransitioning: () => transitioning,

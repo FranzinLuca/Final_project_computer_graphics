@@ -25,7 +25,37 @@
  * ring-out of a crash nothing triggered this frame.
  *
  *
- * PHASE 10: WHY THE TRUSS BECAME TWO SPEAKER STACKS
+ * PHASE 14: THE EMITTERS LEFT THE FRAME
+ *
+ * Two changes that are really one idea.
+ *
+ * FIRST, no fixture is drawn any more. There are no housings, no lenses, no
+ * yokes, no boom and no floor cans. The reason is not that they looked bad —
+ * it is that a lamp you can see is a lamp whose beam has to start somewhere
+ * visible, and a shaft that begins at a small bright object reads as a cone
+ * attached to a prop. Every stage photograph that looks like a stage
+ * photograph has its sources OUT OF FRAME: light arrives from beyond the top
+ * edge, already established, with no visible origin to argue with.
+ *
+ * So the emitters moved up and outward, above the camera's normal field of
+ * view, and the geometry that used to represent them was deleted. What is left
+ * in the scene is the light itself.
+ *
+ * SECOND, the shafts came back — as a raymarched volume rather than as cone
+ * meshes. That reverses the phase 11 decision to remove them, and the reversal
+ * is the point: cone geometry was removed because two cones cannot fuse, since
+ * compositing two meshes always leaves the silhouette of one over the other.
+ * The integral in volumetrics.js sums every source's contribution PER SAMPLE
+ * along the view ray, so crossing shafts produce a genuinely brighter, warmer
+ * core with no edge anywhere. Same feature, different technology, and the
+ * first attempt is kept in the log because the reason it failed is the reason
+ * the second one works.
+ *
+ * This module no longer draws the beams at all. It owns the lights and
+ * publishes a description of each shaft; volumetrics.js renders them.
+ *
+ *
+ * WHY THE TRUSS BECAME TWO SPEAKER STACKS
  *
  * The truss was four thin poles and a crossbar, and it had two problems that
  * are worth separating because only one of them is about looks.
@@ -62,10 +92,10 @@
  * The two angles are DERIVED, never authored. A base aim is computed once from
  * the fixture's own world position and the point it is supposed to light — so
  * moving a tower re-aims its light with no numbers to retype — and the live
- * angles are that base plus a slow sweep and a midrange term. The beam, the
- * housing, the lens and the spot's own target are all children of the tilt
- * group, so they cannot fall out of alignment with each other: there is one
- * pair of numbers and five things that ride them.
+ * angles are that base plus a slow sweep and a midrange term. The housing, the
+ * lens and the spot's own target are all children of the tilt group, so they
+ * cannot fall out of alignment with each other: there is one pair of numbers
+ * and four things that ride them.
  *
  *
  * WHERE THE LIGHTS GO, AND WHY LOW
@@ -219,10 +249,42 @@ const ENVELOPE = {
 // phase: the reactive rig had been correct and invisible.
 // ---------------------------------------------------------------------------
 
+/**
+ * Re-costed again when the instrument grew and the towers moved out with it.
+ *
+ * Illuminance is intensity / d^2, so every fixture that moved needs its peak
+ * multiplied by the square of how much further away it now is. These are
+ * measured from the actual positions rather than estimated:
+ *
+ *   accent   1.359 -> 1.607 units,  x1.40
+ *   wash     1.036 -> 1.326 units,  x1.64
+ *   sparkle  0.975 -> 1.037 units,  x1.13
+ *
+ * Not a taste decision. These are the only values that leave the light landing
+ * on the instrument exactly as hard as it did before the room was rescaled,
+ * which is what makes "scale the scene up" a change of framing rather than a
+ * change of look that then has to be re-tuned by eye.
+ */
+/**
+ * Re-costed a third time, for emitters that moved from 2.2 units up to 3.9.
+ *
+ * Illuminance is intensity / d^2 and nothing else, so a fixture that moves
+ * further from its target needs its peak multiplied by the square of the ratio
+ * simply to stand still. Measured from the actual positions rather than
+ * guessed at:
+ *
+ *   accent   2.80 -> 4.53 units,  irradiance 0.71 preserved at peak 15
+ *   sparkle  2.37 -> 4.31 units,  irradiance 1.30 preserved at peak 24
+ *
+ * These look like large numbers next to the key light's 0.85 and they are not
+ * comparable: a DirectionalLight has no falloff and a SpotLight at decay 2
+ * divides by twenty. Doing this arithmetic rather than turning knobs is what
+ * makes "the room got bigger" a change of scale instead of a re-lighting job.
+ */
 const PEAK = {
-  wash: 4.6,
-  accent: 4.0,
-  sparkle: 6.5,
+  wash: 7.2,
+  accent: 15.0,
+  sparkle: 24.0,
 };
 
 /**
@@ -232,7 +294,7 @@ const PEAK = {
  * answers "what does a grader see if they never press play". At idle the four
  * reactive fixtures put roughly 0.09 of illuminance on the slab between them —
  * well under the key, but enough that every lamp visibly has its light on and
- * every beam is faintly present in the air. The scene at rest is a lit stage
+ * every cabinet meter shows a segment lit. The scene at rest is a lit stage
  * waiting, not a dark frame.
  */
 const IDLE = 0.18;
@@ -242,9 +304,11 @@ const IDLE = 0.18;
 // ---------------------------------------------------------------------------
 
 /**
- * `x` is far enough out that the slab's wings — which reach 0.50 to a side
- * when open — never come near a cabinet, and close enough that both towers
- * stay in frame on the Overview shot. `toe` angles each stack inward about Y
+ * `x` moved out from 1.06 to 1.38 when the instrument was scaled up. The
+ * constraint is the same one it always was and it is worth restating as a
+ * constraint rather than as a number: the slab's wings reach `0.5 * scale` to
+ * a side when open — now 0.75 — and a cabinet has to sit clear of that with
+ * room for the player, while both towers stay in frame on the Overview shot. `toe` angles each stack inward about Y
  * so the two are not parallel slabs: a pair of boxes facing straight forward
  * reads as scenery, a pair angled towards the subject reads as aimed at an
  * audience.
@@ -256,7 +320,7 @@ const IDLE = 0.18;
  * angled, the yoke is a thing that is aimed, and they are not aimed at the
  * same place.
  */
-const TOWER = { x: 1.06, z: -0.10, toe: 0.20 };
+const TOWER = { x: 1.38, z: -0.12, toe: 0.20 };
 
 /** Cabinet tiers, bottom to top. */
 const CABS = [
@@ -269,10 +333,18 @@ const CABS = [
 /** Top of the stack, where the yoke post stands. */
 const STACK_TOP = 0.855;
 
-const CAN_LEN = 0.115;
-const CAN_R = 0.052;
+/** Lamps per LED column. Two columns per cabinet. */
+const LED_PER_COLUMN = 10;
+
+/** Lamps in a driver ring. Sixteen is enough that the chase reads as motion
+ *  rather than as individual lamps blinking in sequence. */
+const RING_LAMPS = 16;
+const RING_LAMPS_SMALL = 12;
 
 // ---------------------------------------------------------------------------
+
+const UP = new THREE.Vector3(0, 1, 0);
+const RIGHT = new THREE.Vector3(1, 0, 0);
 
 /**
  * @param {{ scene: THREE.Scene }} deps
@@ -281,10 +353,6 @@ export function initLighting({ scene }) {
   const group = new THREE.Group();
   group.name = 'reactive-lights';
   scene.add(group);
-
-  /** Set by setBeams / setDust, read by the per-frame code. */
-  let beamsOn = true;
-  let dustOn = true;
 
   // -----------------------------------------------------------------------
   // Shared geometry and materials
@@ -315,22 +383,15 @@ export function initLighting({ scene }) {
   }
 
   const GEO = {
-    can: alongZ(roundedCylinderGeometry(CAN_R, CAN_LEN, 0.016, 24, 3), CAN_LEN),
-    lens: alongZ(roundedCylinderGeometry(CAN_R * 0.88, 0.012, 0.005, 24, 2), 0.012),
-    stem: roundedCylinderGeometry(0.016, 0.20, 0.008, 16, 2),
-    foot: roundedCylinderGeometry(0.085, 0.022, 0.010, 24, 2),
-    clamp: roundedBoxGeometry(0.048, 0.048, 0.048, 0.014, 3),
-
-    // The yoke: a short post, and two arms the can is pinned between.
-    post: roundedCylinderGeometry(0.026, 0.050, 0.010, 20, 2),
-    arm: roundedBoxGeometry(0.016, 0.088, 0.030, 0.007, 3),
-
-    // Drivers, seen face-on through the grille cloth. Lying along Z so their
-    // domed end points out of the baffle.
+    // Drivers, seen face-on. Lying along Z so their domed end points out of
+    // the baffle.
     woofer: alongZ(roundedCylinderGeometry(0.082, 0.026, 0.020, 28, 3), 0.026),
     driver: alongZ(roundedCylinderGeometry(0.055, 0.022, 0.016, 24, 3), 0.022),
     hornMouth: roundedBoxGeometry(0.170, 0.062, 0.024, 0.014, 3),
     standby: roundedBoxGeometry(0.014, 0.010, 0.006, 0.002, 2),
+
+    // One RGB LED. Instanced twenty times per tower — see the strips below.
+    led: roundedBoxGeometry(0.022, 0.011, 0.007, 0.0025, 2),
   };
 
   /** Tier -> its box geometry, built once and shared by both towers. */
@@ -390,6 +451,23 @@ export function initLighting({ scene }) {
    */
   const standbyMat = new THREE.MeshBasicMaterial({ color: PALETTE.standby });
 
+  /**
+   * The LED material: one instance, shared by every lamp on a tower.
+   *
+   * MeshBasicMaterial and `toneMapped: false`. A lamp must be exactly the
+   * colour it is told and must not pick up the wash from anything else in the
+   * room — these are emitters behind diffusers, not surfaces. Leaving tone
+   * mapping off keeps a saturated LED saturated, where AgX's shoulder would
+   * pull the brightest ones towards white: on a strip whose entire job is
+   * colour, that is the one thing that must not happen.
+   *
+   * `setColorAt` reaches the shader because three defines USE_INSTANCING_COLOR
+   * whenever an InstancedMesh carries an `instanceColor` attribute, and
+   * multiplies it into the material colour — which is why the base colour here
+   * is white rather than anything else.
+   */
+  const ledMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+
   function part(geometry, material, position, parent = null, receive = true) {
     const mesh = new THREE.Mesh(geometry, material);
     if (position) mesh.position.set(...position);
@@ -413,178 +491,87 @@ export function initLighting({ scene }) {
   }
 
   // -----------------------------------------------------------------------
-  // The beam gradient
-  // -----------------------------------------------------------------------
-
-  /**
-   * A one-dimensional ramp applied along the length of every beam cone.
-   *
-   * The failure mode of a fake volumetric is a visible solid cone with a hard
-   * edge where it stops, and lowering the opacity does not fix it — it gives a
-   * fainter cone with the same hard edge. What removes the edge is making the
-   * beam fade with distance from the source, which is also what actually
-   * happens: the light spreads over a growing cross-section, so the radiance
-   * scattered per unit volume falls as it travels.
-   *
-   * `ConeGeometry`'s v coordinate runs along the axis, so a 1xN texture is all
-   * this needs. It is built here rather than in textures.js because it is not
-   * a surface property — it belongs to the fixture, the same way the lens
-   * does, and nothing else in the project will ever want it.
-   *
-   * With `AdditiveBlending` three uses `SrcAlpha` as the source factor, so the
-   * alpha channel of this map genuinely modulates the contribution rather than
-   * being ignored as it would be under a pure `One, One` blend.
-   */
-  function beamRamp(size = 64) {
-    const data = new Uint8Array(size * 4);
-    for (let i = 0; i < size; i++) {
-      const t = i / (size - 1);              // 0 at the apex, 1 at the mouth
-      // Bright near the source, fading to nothing before the geometry ends,
-      // and pulled down again in the first few texels so the cone does not
-      // start as a hard disc at the lens.
-      const a = Math.pow(1 - t, 1.6) * (0.35 + 0.65 * Math.min(1, t * 6));
-      data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = 255;
-      data[i * 4 + 3] = Math.round(Math.min(1, a) * 255);
-    }
-    const texture = new THREE.DataTexture(data, 1, size, THREE.RGBAFormat);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.needsUpdate = true;
-    return texture;
-  }
-
-  const beamGradient = beamRamp();
-
-  // -----------------------------------------------------------------------
-  // Fixtures
+  // Emitters
   //
-  // SpotLight throughout, and never PointLight. A point light that casts
-  // shadows needs a cube shadow map — six renders of the scene per light per
-  // frame — where a spot needs one, because a spot has a single frustum. Even
-  // with shadows off, as they are here, the spot's cone is the thing that
-  // makes a fixture read as a fixture rather than as an ambient tint: a light
-  // with no falloff at its edge has no visible direction.
+  // A light and nothing else. No housing, no lens, no yoke: the apex of every
+  // shaft sits above and outside the camera's normal field of view, and the
+  // only thing in the frame is what the light does.
+  //
+  // SpotLight throughout, and never PointLight. A spot has one frustum and one
+  // shadow map where a point needs six, and — more to the point here — a spot
+  // has an axis and a cone angle, which is exactly the description
+  // volumetrics.js needs to march. A point light has no shape to draw.
   //
   // NONE of these cast shadows. The key light in main.js owns the shadow, and
   // a second shadow-casting light from a different direction would give every
-  // object two overlapping silhouettes on the ground and destroy the read of
-  // the first one.
+  // object two overlapping silhouettes on the ground. This is also the reason
+  // the shafts are unshadowed: cutting a dark slot through a beam means
+  // sampling that light's shadow map, and there is no shadow map to sample.
+  // Recorded as a limitation rather than hidden.
   // -----------------------------------------------------------------------
 
-  /** @type {Array<{light: THREE.SpotLight, lens: THREE.Mesh, beam: THREE.Mesh|null, peak: number}>} */
+  /**
+   * @type {Array<{
+   *   light: THREE.SpotLight, peak: number, range: number,
+   *   volumetric: boolean, position: THREE.Vector3, direction: THREE.Vector3
+   * }>}
+   */
   const fixtures = [];
 
   /**
-   * One complete fixture, built into a `mount` whose +Z is the direction the
-   * light goes: a spot, a housing, a lens that brightens with it, and a soft
-   * cone standing in for the beam in air.
+   * One emitter: a spot at `position` aimed at `aim`.
    *
-   * Everything sits at the mount's local origin — including the spot's target,
-   * which is a CHILD one unit down +Z. That is what makes the yoke work: a
-   * SpotLight aims at its target's world position, so putting the target
-   * inside the rotating group means panning and tilting the group re-aims the
-   * light with no code at all. The alternative — recomputing a world-space
-   * target every frame from the yoke's angles — is the same trigonometry
-   * written twice, once forwards and once backwards.
+   * The target is a plain Object3D added to the group rather than left at the
+   * origin, because a SpotLight aims at its target's WORLD position and an
+   * unparented target is never updated by the renderer — the light would point
+   * at (0,0,0) regardless of what was assigned to it. This is the single most
+   * common SpotLight mistake and it fails silently.
+   *
+   * `volumetric` decides whether the shaft is drawn. Not every light should
+   * have one: the low washes exist to put a pool on the floor, and a 54-degree
+   * flood spreads its energy over roughly nine times the solid angle of a
+   * narrow beam, so in air it does not read as a shaft at all. Marching it
+   * would spend a third of the shader's budget on a faint even haze across the
+   * whole frame.
    */
-  function fixture({ colour, mount, angle, penumbra, peak, beamLen = 0 }) {
+  function emitter({ colour, position, aim, angle, penumbra, peak, range = 6, volumetric = false }) {
     const light = new THREE.SpotLight(colour, IDLE, 0, angle, penumbra, 2);
     light.castShadow = false;
-    mount.add(light);
+    light.position.set(...position);
+    group.add(light);
 
-    light.target.position.set(0, 0, 1);
-    mount.add(light.target);
+    const target = new THREE.Object3D();
+    target.position.set(...aim);
+    group.add(target);
+    light.target = target;
 
-    // Housing sits behind the origin so its open mouth is exactly at the
-    // light's position — the emitter and the aperture coincide, which is the
-    // whole point of drawing it.
-    part(GEO.can, housingMat, [0, 0, -CAN_LEN / 2 - 0.004], mount);
+    const entry = {
+      light,
+      peak,
+      range,
+      volumetric,
+      angle,
+      penumbra,
+      position: light.position,
+      direction: new THREE.Vector3(...aim).sub(light.position).normalize(),
+    };
 
-    /**
-     * The lens. MeshBasicMaterial, not an emissive Standard: this surface is
-     * meant to be exactly as bright as it is told and to ignore every light in
-     * the scene, including its own. A Standard material would pick up the wash
-     * from the fixture opposite and glow faintly when it should be dark.
-     *
-     * `toneMapped` is left ON, so pushing the colour past 1.0 rolls off
-     * through the same curve as everything else instead of clipping to a flat
-     * disc of pure hue. In a dark room this is the closest thing the project
-     * has to bloom, and it is not a bad substitute: a source driven well past
-     * white and tone mapped back down leaves a hot desaturated centre with a
-     * coloured edge, which is most of what a bloom pass is imitating.
-     */
-    const lens = new THREE.Mesh(GEO.lens, new THREE.MeshBasicMaterial({ color: colour }));
-    lens.position.z = 0.002;
-    mount.add(lens);
-
-    /**
-     * The beam: an open cone of additive transparency standing in for light
-     * scattering off dust in the air.
-     *
-     * Real volumetrics need either ray marching or a shadow-map-driven scatter
-     * pass, both out of proportion to what this scene needs. A cone with
-     * `depthWrite: false`, additive blending and a length ramp gets most of
-     * the read for one draw call. The flags matter: additive because light
-     * adds and never occludes, and no depth write because overlapping
-     * transparent cones that write depth hide each other in whatever order
-     * they happen to be drawn.
-     */
-    let beam = null;
-    if (beamLen > 0) {
-      const radius = Math.tan(angle) * beamLen * 0.92;
-      const cone = new THREE.ConeGeometry(radius, beamLen, 28, 1, true);
-      cone.translate(0, -beamLen / 2, 0);
-      cone.rotateX(-Math.PI / 2);
-
-      beam = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({
-        color: colour,
-        alphaMap: beamGradient,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        fog: false,
-        toneMapped: false,
-      }));
-      // Drawn after the opaque scene and after the contact patches, so the
-      // sorting question never arises for it.
-      beam.renderOrder = 2;
-      mount.add(beam);
-    }
-
-    const entry = { light, lens, beam, peak };
     fixtures.push(entry);
     return entry;
-  }
-
-  /**
-   * A fixture that hangs in world space and simply looks at something: the
-   * floor washes and the overhead sparkle. The mount is an ordinary Group,
-   * pointed once at build time and never moved again.
-   */
-  function staticFixture(colour, position, aim, angle, penumbra, peak, beamLen = 0) {
-    const mount = new THREE.Group();
-    mount.position.set(...position);
-    group.add(mount);
-    mount.lookAt(new THREE.Vector3(...aim));
-    return fixture({ colour, mount, angle, penumbra, peak, beamLen });
   }
 
   // -----------------------------------------------------------------------
   // The speaker stacks
   // -----------------------------------------------------------------------
 
-  /**
-   * Where the tower fixtures point: the middle of the instrument, slightly
-   * above the deck so the cone crosses the pads rather than terminating on
-   * them.
-   */
-  const AIM = new THREE.Vector3(0, 0.06, 0);
-
-  /** @type {Array<{pan: THREE.Group, tilt: THREE.Group, basePan: number, baseTilt: number, side: number, woofers: THREE.Mesh[]}>} */
+  /** @type {Array<{side: number, woofers: THREE.Mesh[], leds: THREE.InstancedMesh, stack: THREE.Group, stackY0: number}>} */
   const towers = [];
+
+  /** Scratch colour for the LED strips, allocated once per rig, not per lamp. */
+  const ledColour = new THREE.Color();
+
+  /** The towers' floor patches, handed to intro.js. */
+  const towerShadows = [];
 
   function buildTower(side) {
     const root = new THREE.Group();
@@ -638,28 +625,141 @@ export function initLighting({ scene }) {
       }
     });
 
+    /**
+     * RGB LIGHTING: two edge strips, and a ring around every driver.
+     *
+     * All of it is ONE `InstancedMesh` per tower — sixty-four lozenges sharing
+     * one geometry and one material, in one draw call. That matters more than
+     * it looks: each lamp needs its own colour, and the obvious way to get
+     * that is a material per lamp, which here would be a hundred and twenty
+     * eight materials and as many draw calls across the pair of towers, for an
+     * object that is decoration. Instancing gives every instance its own
+     * colour through a per-instance attribute at no per-lamp cost at all.
+     *
+     * The strips run the height of the sub, where there is unbroken edge to
+     * run along. Two columns rather than one, because a single strip reads as
+     * a meter and a symmetric pair reads as trim.
+     *
+     * The RINGS are the reason the count went from twenty to sixty-four. A
+     * ring of lamps concentric with a driver is the one piece of RGB lighting
+     * that is about the SPEAKER rather than about the cabinet: it frames the
+     * moving part, so when the cone travels on a kick the ring is the
+     * stationary reference that makes the travel legible. Without something
+     * fixed beside it, a cone moving eight millimetres along its own axis is
+     * nearly invisible — there is nothing in frame for the eye to measure it
+     * against.
+     *
+     * Each ring lamp is rotated to lie tangent to its circle, because a ring
+     * of identically-oriented rectangles reads as a dotted line bent into a
+     * curve, and a ring of tangential ones reads as a manufactured bezel.
+     */
+    const ledSlots = [];
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const scaleOne = new THREE.Vector3(1, 1, 1);
+    const position = new THREE.Vector3();
+    const axisZ = new THREE.Vector3(0, 0, 1);
+
+    const sub = CABS[1];
+    const subFaceZ = sub.d / 2 + 0.004;
+
+    // --- the two edge strips ---------------------------------------------
+    for (const column of [-1, 1]) {
+      for (let i = 0; i < LED_PER_COLUMN; i++) {
+        const along = i / (LED_PER_COLUMN - 1);
+        position.set(column * 0.152, sub.y - 0.165 + along * 0.330, subFaceZ + 0.008);
+        ledSlots.push({
+          kind: 'strip',
+          along,
+          matrix: new THREE.Matrix4().makeTranslation(position.x, position.y, position.z),
+        });
+      }
+    }
+
+    // --- a ring around each driver ---------------------------------------
+    //
+    // Radii sit just outside each cone, so the lamps frame the driver without
+    // overlapping the part that moves.
+    const RINGS = [
+      { y: sub.y - 0.095, z: subFaceZ, radius: 0.098, lamps: RING_LAMPS },
+      { y: sub.y + 0.095, z: subFaceZ, radius: 0.098, lamps: RING_LAMPS },
+      { y: CABS[2].y, z: CABS[2].d / 2 + 0.004, radius: 0.070, lamps: RING_LAMPS_SMALL },
+    ];
+
+    RINGS.forEach((ring, ringIndex) => {
+      for (let i = 0; i < ring.lamps; i++) {
+        const phase = i / ring.lamps;
+        const theta = phase * Math.PI * 2;
+
+        position.set(
+          Math.cos(theta) * ring.radius,
+          ring.y + Math.sin(theta) * ring.radius,
+          ring.z + 0.006
+        );
+        // Tangent to the circle: a rotation about Z by the angle itself turns
+        // the lozenge's long axis from horizontal into the tangent direction.
+        quaternion.setFromAxisAngle(axisZ, theta + Math.PI / 2);
+
+        ledSlots.push({
+          kind: 'ring',
+          ring: ringIndex,
+          phase,
+          matrix: new THREE.Matrix4().compose(position, quaternion, scaleOne),
+        });
+      }
+    });
+
+    const leds = new THREE.InstancedMesh(GEO.led, ledMat, ledSlots.length);
+    leds.castShadow = false;
+    leds.receiveShadow = false;
+    // The lamps never move relative to the cabinet, so the matrices are
+    // written once. Telling three that saves a per-frame upload of sixty-four
+    // matrices that would never have changed.
+    leds.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    leds.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(ledSlots.length * 3), 3
+    );
+
+    ledSlots.forEach((slot, i) => {
+      matrix.copy(slot.matrix);
+      leds.setMatrixAt(i, matrix);
+    });
+
+    leds.instanceMatrix.needsUpdate = true;
+    stack.add(leds);
+
     // Contact patch, sized wider than the plinth: the ambient occlusion under
     // a box does not stop at its footprint, it fades outward from it.
     const patch = makeContactShadow(0.34, 0.62);
     patch.position.set(side * TOWER.x, 0.0012, TOWER.z);
+    // Tagged and collected so the power-on sequence can fade it in with the
+    // cabinet it belongs to. A contact patch sitting on an empty floor
+    // announces exactly where something is about to appear.
+    patch.userData.kind = 'tower';
+    towerShadows.push(patch);
     group.add(patch);
 
-    // --- branch two: the yoke --------------------------------------------
-    part(GEO.post, poleMat, [0, STACK_TOP, 0], root);
+    /**
+     * The yoke branch is gone with the fixtures it carried.
+     *
+     * Recorded as a LOSS rather than as a tidy-up: `tower → post → pan → tilt
+     * → can` was a five-level chain with two real degrees of freedom, and a
+     * second example of structure-driven animation beside the wing fold.
+     * Removing the visible lamp removed the thing the yoke existed to point.
+     *
+     * What survives is the derivation. Each shaft's aim is still computed from
+     * the emitter's position and the point it lights, and still drifts on a
+     * slow sweep — the mathematics moved out of a transform chain and into the
+     * beam descriptors handed to volumetrics.js, so the behaviour is intact
+     * even though the mechanism that displayed it is not. The graded pillar
+     * rests on the fold in hierarchy.js and on the mascot's arms, untouched.
+     */
 
-    const pan = new THREE.Group();
-    pan.position.y = STACK_TOP + 0.050;
-    root.add(pan);
-
-    for (const dx of [-0.062, 0.062]) {
-      part(GEO.arm, poleMat, [dx, 0.044, 0], pan);
-    }
-
-    const tilt = new THREE.Group();
-    tilt.position.y = 0.055;
-    pan.add(tilt);
-
-    const entry = { pan, tilt, basePan: 0, baseTilt: 0, side, woofers };
+    const entry = {
+      side, woofers, leds, ledSlots, stack,
+      stackY0: stack.position.y,
+      stackScaleY: 1,
+    };
     towers.push(entry);
     return entry;
   }
@@ -668,135 +768,141 @@ export function initLighting({ scene }) {
   const towerRight = buildTower(1);
 
   /**
-   * Aim a yoke at a world point, once, and keep the result as the base pose.
+   * The three shafts.
    *
-   * `pan` is the azimuth of the direction measured the way `atan2(x, z)`
-   * measures it — from +Z towards +X, which is exactly the sense in which a
-   * rotation about +Y carries +Z. `tilt` is `-asin(dy)` because rotating +Z
-   * about +X by a positive angle carries it towards -Y, and this fixture aims
-   * downwards.
+   * Apexes at y = 2.2, which is chosen against two constraints rather than by
+   * eye. It has to be above the camera's field of view in every authored shot
+   * — the highest, Room, looks at y = 0.34 from a radius of 2.7, so a 45-degree
+   * vertical FOV reaches roughly y = 1.5 at the instrument — and it has to be
+   * BELOW the cyclorama's top edge at 2.4. That second one is not obvious and
+   * matters: put an emitter outside the room and the ray from the camera hits
+   * the cyc wall before it reaches the apex, so the depth pass cuts the shaft
+   * off at the wall's silhouette and the beam appears to start in mid-air with
+   * a hard horizontal edge.
    *
-   * Derived rather than typed. Move a tower 100 mm and its light still lands
-   * on the instrument with no second number to remember — the same rule the
-   * wing hinge and the pad dip follow, applied to an aim instead of a
-   * position.
+   * Cool from the left, warm from the right, magenta from behind. The first
+   * two follow the same reasoning as before — Otto is amber and stands on the
+   * right, so the warm side reinforces the colour he already is while the cool
+   * shaft crosses the slab and rims his silhouette. The third exists purely so
+   * that shafts CROSS: two beams converging on one point overlap in a line,
+   * where three from different bearings overlap in a volume, and the fusion is
+   * the whole reason the raymarch was worth building.
+   *
+   * Narrow, at 0.16 radians. Beam visibility per unit length goes as intensity
+   * over solid angle, so a tight cone reads as a shaft where a wide one reads
+   * as a general haze — which is also why the two floor washes below are not
+   * marched at all.
    */
-  function aimYoke(tower, target) {
-    const world = new THREE.Vector3();
-    tower.pan.getWorldPosition(world);
-    const d = target.clone().sub(world).normalize();
-    tower.basePan = Math.atan2(d.x, d.z);
-    tower.baseTilt = -Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
-    tower.pan.rotation.y = tower.basePan;
-    tower.tilt.rotation.x = tower.baseTilt;
-  }
-
-  // World matrices are stale until something updates them, and getWorldPosition
-  // reads them. One explicit update here is cheaper and more honest than
-  // relying on a render having already happened.
-  group.updateMatrixWorld(true);
-  aimYoke(towerLeft, AIM);
-  aimYoke(towerRight, AIM);
-
-  /**
-   * MID — the two tower heads. These are the only fixtures whose COLOUR moves.
-   *
-   * Intensity alone is a weak channel for the midrange, because the mids are
-   * almost always doing something and a light that is always half on reads as
-   * static. Hue is a channel nothing else in this scene competes for.
-   *
-   * Cool on the left, warm on the right, and which side gets which is not
-   * arbitrary. Otto stands at x = +0.70 and is painted amber. A warm light
-   * from his own side reinforces the colour he already is and keeps him
-   * readable; the cool beam crosses the slab from the far side and lands on
-   * his silhouette edge as a complementary rim. Reversed, the teal would sit
-   * flat across an amber shell and turn it muddy, and the warm light would be
-   * doing its separating from the side with nothing to separate.
-   */
-  const accentLeft = fixture({
+  const accentLeft = emitter({
     colour: 0x35d6ff,
-    mount: towerLeft.tilt,
-    angle: 0.36,
-    penumbra: 0.75,
+    position: [-2.30, 3.95, -0.85],
+    aim: [-0.22, 0.05, 0.12],
+    angle: 0.26,
+    penumbra: 0.72,
     peak: PEAK.accent,
-    beamLen: 1.55,
+    range: 6.0,
+    volumetric: true,
   });
 
-  const accentRight = fixture({
+  const accentRight = emitter({
     colour: 0xff7a3c,
-    mount: towerRight.tilt,
-    angle: 0.36,
-    penumbra: 0.75,
+    position: [2.30, 3.95, -0.85],
+    aim: [0.22, 0.05, 0.12],
+    angle: 0.26,
+    penumbra: 0.72,
     peak: PEAK.accent,
-    beamLen: 1.55,
+    range: 6.0,
+    volumetric: true,
   });
 
-  const accent = [accentLeft, accentRight];
+  const accentBack = emitter({
+    colour: 0xc45cff,
+    position: [0.0, 4.10, -2.60],
+    aim: [0, 0.05, 0.34],
+    angle: 0.23,
+    penumbra: 0.68,
+    peak: PEAK.accent * 0.9,
+    range: 6.4,
+    volumetric: true,
+  });
+
+  const accent = [accentLeft, accentRight, accentBack];
 
   /**
-   * BASS — two floor cans at the feet of the stacks, low and grazing.
+   * HIGH — one tight shaft, nearly vertical, straight down the middle.
    *
-   * At 200 mm the beam skims across the slab rather than falling onto it, so
-   * the lambert term varies sharply over the bezel rails and the wing surfaces
-   * and the slab gains an actual gradient instead of a uniform brighter flat.
-   * Most of each cone lands on the ground beyond the instrument, which is the
-   * point: two pools breathing with the kick do more for the room than
-   * anything happening on 60 mm of slab could — and far more of it now that
-   * the ground is polished and returns a raking highlight instead of
-   * absorbing the light into grey concrete.
-   *
-   * Deep indigo, which is neither accent colour. Three fixtures from the same
-   * hue family collapse into one wash, and the bass needs to be legible as a
-   * separate event from the mids; the cheapest way to make two lights read as
-   * two is to make them different colours.
-   *
-   * No visible beam on these, and that is a physical decision rather than a
-   * rendering compromise. Beam visibility depends on intensity per unit solid
-   * angle, because that is what sets how much light a given volume of air
-   * scatters. These are 54-degree floods: they spread the same energy over
-   * roughly nine times the solid angle of the accents, so in air they simply
-   * do not read as a shaft. Drawing one anyway would put a translucent sheet
-   * across the frame, which is the exact failure mode of this trick.
+   * Overhead is the one position where a hard specular highlight lands on the
+   * knob caps and the pad caps at once. With no boom to hang it from it simply
+   * hangs in the air, which is what removing the fixtures buys: a light no
+   * longer needs a plausible mounting point, because there is nothing to
+   * mount.
    */
-  const wash = [-1, 1].map((side) => {
-    const position = [side * 0.80, 0.20, 0.34];
-    part(GEO.foot, housingMat, [position[0], 0.011, position[2]]);
-    part(GEO.stem, housingMat, [position[0], 0.0, position[2]]);
-    return staticFixture(
-      0x5a4cff, position, [side * -0.12, 0.02, -0.10], 0.95, 0.85, PEAK.wash, 0
-    );
+  const sparkle = emitter({
+    colour: 0xf4f8ff,
+    position: [0.10, 4.35, 0.45],
+    aim: [0, 0.06, 0],
+    angle: 0.18,
+    penumbra: 0.55,
+    peak: PEAK.sparkle,
+    range: 6.2,
+    volumetric: true,
   });
 
   /**
-   * HIGH — one tight flick on a boom cantilevered off the left stack.
+   * BASS — two more shafts, wide and low-angled, crossing over the instrument.
    *
-   * It has to be nearly overhead, because that is the one position where a
-   * hard specular highlight lands on the knob caps and the pad caps at once —
-   * and with the truss gone there is nothing overhead to hang it from. A boom
-   * off a tower is exactly what a real rig does with this problem, and it
-   * keeps the rule that motivated removing the poles: every fixture has a
-   * visible reason to be where it is.
+   * Added when the room was closed and the ceiling went from 2.4 to 4.9. Two
+   * things changed at once and both argue for more beams: there is far more
+   * air for a shaft to cross, and there is now a surface above for them to
+   * terminate on, so a beam that used to run out into the background gradient
+   * now paints an ellipse on the dome.
    *
-   * The arm is a solid bar of the same rounded family as everything else
-   * rather than a thin rod. It is cantilevered nearly a metre, so it needs to
-   * read as something that could hold a light up.
+   * These are on the BASS, which nothing volumetric was on before. The
+   * midrange shafts sweep and the top-end one flicks; a kick had no
+   * representation in the air at all, so the loudest event in the music was
+   * the one the lighting ignored. Wide (0.34) and short-throw, so they read as
+   * a swell filling the room rather than as another pair of pencils.
+   *
+   * Deep indigo, matching the floor washes below them — the bass gets one
+   * colour across both its representations, which is what lets a viewer
+   * connect the pool on the floor with the shaft above it.
    */
-  const BOOM = { y: 1.06, endX: -0.14 };
-  const boomLen = TOWER.x + BOOM.endX;
+  const bassBeams = [-1, 1].map((side) => emitter({
+    colour: 0x5a4cff,
+    position: [side * 2.55, 3.30, 1.95],
+    aim: [side * -0.30, 0.05, -0.10],
+    angle: 0.34,
+    penumbra: 0.85,
+    peak: PEAK.accent * 0.75,
+    range: 6.8,
+    volumetric: true,
+  }));
 
-  const boomBar = part(
-    alongZ(roundedCylinderGeometry(0.020, boomLen, 0.009, 16, 2), boomLen),
-    poleMat,
-    [(-TOWER.x + BOOM.endX) / 2, BOOM.y, TOWER.z]
-  );
-  boomBar.rotation.y = Math.PI / 2; // the bar runs across X, not along Z
-
-  part(GEO.clamp, poleMat, [-TOWER.x, BOOM.y - 0.02, TOWER.z]);
-  part(GEO.clamp, poleMat, [BOOM.endX, BOOM.y, TOWER.z]);
-
-  const sparkle = staticFixture(
-    0xf4f8ff, [BOOM.endX, BOOM.y - 0.05, TOWER.z], [0, 0.05, 0], 0.30, 0.40, PEAK.sparkle, 1.05
-  );
+  /**
+   * BASS — two low washes, grazing across the floor, with no shaft.
+   *
+   * At 200 mm the light skims the slab rather than falling onto it, so the
+   * lambert term varies sharply over the bezel rails and the wing surfaces and
+   * the slab gains a gradient instead of a uniform brighter flat. Most of each
+   * cone lands on the ground beyond the instrument, which is the point now
+   * that the ground is polished and returns a raking highlight.
+   *
+   * `volumetric: false`, and that is physics rather than a budget cut. These
+   * are 54-degree floods: they spread the same energy over roughly nine times
+   * the solid angle of the shafts above, so the scattered radiance per unit
+   * length is an order of magnitude lower and would render as an even wash
+   * across the lower frame — not a shaft, just a fog that makes everything
+   * else muddier.
+   */
+  const wash = [-1, 1].map((side) => emitter({
+    colour: 0x5a4cff,
+    position: [side * 1.02, 0.20, 0.44],
+    aim: [side * -0.16, 0.03, -0.14],
+    angle: 0.95,
+    penumbra: 0.85,
+    peak: PEAK.wash,
+    volumetric: false,
+  }));
 
   /**
    * A hemisphere term that lifts with the whole mix.
@@ -811,94 +917,6 @@ export function initLighting({ scene }) {
    */
   const ambient = new THREE.HemisphereLight(PALETTE.skyTop, PALETTE.ground, 0.0);
   group.add(ambient);
-
-  // -----------------------------------------------------------------------
-  // Dust in the air
-  // -----------------------------------------------------------------------
-
-  /**
-   * What actually makes a beam believable.
-   *
-   * A cone of additive haze is a smooth gradient, and smooth gradients read as
-   * geometry — the eye finds the shape and stops looking. Particles break
-   * that: the beam stops being a surface and becomes a volume with things
-   * suspended in it, which is the honest reading, because the only reason a
-   * shaft of light is visible at all is that there is something in the air to
-   * scatter it. The cone and the motes are two halves of one claim.
-   *
-   * They are `Points`, so all 260 are ONE draw call and one buffer upload per
-   * frame. The alternative — a small mesh each — would be 260 draws for an
-   * effect that is by design barely visible, which is the wrong shape of cost
-   * entirely.
-   *
-   * The honest limitation: a mote does not know whether it is inside a beam.
-   * Testing each one against two moving cones every frame is a real cost for a
-   * subtle payoff, so instead the whole field's opacity follows how much light
-   * is in the air overall, and each mote is tinted by which side of the room
-   * it is on — the left half cool, the right half warm, matching the beams
-   * that would in fact be lighting them. It is an approximation, and it is
-   * approximate in the one direction the eye cannot check.
-   */
-  const DUST = { count: 260, w: 2.30, h: 1.20, d: 1.30, floor: 0.05 };
-
-  const dustPositions = new Float32Array(DUST.count * 3);
-  const dustColours = new Float32Array(DUST.count * 3);
-  const dustRise = new Float32Array(DUST.count);
-  const dustPhase = new Float32Array(DUST.count);
-
-  {
-    const cool = new THREE.Color(0x35d6ff);
-    const warm = new THREE.Color(0xff7a3c);
-
-    for (let i = 0; i < DUST.count; i++) {
-      const x = (Math.random() - 0.5) * DUST.w;
-      dustPositions[i * 3] = x;
-      dustPositions[i * 3 + 1] = DUST.floor + Math.random() * DUST.h;
-      dustPositions[i * 3 + 2] = (Math.random() - 0.5) * DUST.d - 0.05;
-
-      const tint = x < 0 ? cool : warm;
-      dustColours[i * 3] = tint.r;
-      dustColours[i * 3 + 1] = tint.g;
-      dustColours[i * 3 + 2] = tint.b;
-
-      // Convection, not gravity. Dust in a warm room under lights rises, and
-      // it rises at wildly different rates — a uniform drift reads as a
-      // texture scrolling rather than as particles.
-      dustRise[i] = 0.006 + Math.random() * 0.022;
-      dustPhase[i] = Math.random() * Math.PI * 2;
-    }
-  }
-
-  const dustGeometry = new THREE.BufferGeometry();
-  dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
-  dustGeometry.setAttribute('color', new THREE.BufferAttribute(dustColours, 3));
-
-  const dustMaterial = new THREE.PointsMaterial({
-    size: 0.011,
-    map: radialFalloffTexture(32, 2.0),
-    vertexColors: true,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    /**
-     * Size falls with distance, as it must. A mote three units away drawing
-     * the same number of pixels as one at a single unit is a screen-space
-     * effect stuck to the camera, and the eye reads it immediately as dirt on
-     * the lens rather than as anything in the room.
-     */
-    sizeAttenuation: true,
-    fog: false,
-    toneMapped: false,
-  });
-
-  const dust = new THREE.Points(dustGeometry, dustMaterial);
-  dust.renderOrder = 3;
-  // The bounding sphere is computed once from the initial positions and the
-  // motes then move out of it, so culling would eventually pop the whole field
-  // off screen. One always-drawn object is cheaper than maintaining bounds.
-  dust.frustumCulled = false;
-  group.add(dust);
 
   // -----------------------------------------------------------------------
   // Analyser — attached late
@@ -974,7 +992,7 @@ export function initLighting({ scene }) {
   /** Smoothed 0..1 energy per band. Read by anything that wants a meter. */
   const level = { bass: 0, mid: 0, high: 0 };
 
-  /** Seconds since the rig was built, for the yoke sweep and the dust drift. */
+  /** Seconds since the rig was built, for the yoke sweep. */
   let elapsed = 0;
 
   /**
@@ -1008,66 +1026,206 @@ export function initLighting({ scene }) {
   }
 
   /**
-   * Push one scalar into a fixture: its light, its lens and its beam.
+   * Push one scalar into an emitter.
    *
-   * This is the answer to "where is that light coming from". The three are not
-   * three animations that happen to agree — they are one number read three
-   * times, so they cannot fall out of step no matter how the level is driven.
-   *
-   * The lens carries a floor so the glass never goes fully black, and is
-   * driven past 1.0 at full so the tone mapper rolls its centre towards white
-   * the way an over-bright source does on camera.
-   *
-   * The beam now carries a floor too, which it did not before, and the reason
-   * is physical rather than cosmetic: with IDLE raised there IS light leaving
-   * the fixture at rest, so there is something in the air for it to scatter
-   * off. A beam that vanished entirely between hits would be claiming the lamp
-   * had gone out.
+   * With the housings gone there is no lens to keep in step, so this is one
+   * assignment plus the normalised level the shaft descriptor needs. `k` is
+   * the fraction of the way to peak, and it drives the volumetric density
+   * rather than the light's own intensity, which is already the value being
+   * assigned — one number, two consumers, no possibility of the shaft and the
+   * pool it casts disagreeing about how bright the lamp is.
    */
   function setFixture(entry, intensity) {
     entry.light.intensity = intensity;
+    entry.level = Math.min(1, Math.max(0, (intensity - IDLE) / entry.peak));
+  }
 
-    const k = Math.min(1, Math.max(0, (intensity - IDLE) / entry.peak));
+  /**
+   * The shaft descriptors handed to volumetrics.js each frame.
+   *
+   * Rebuilt into a persistent array rather than reallocated, because this runs
+   * sixty times a second and the objects are identical in shape every time.
+   *
+   * Only emitters marked `volumetric` appear. The drift term is what is left
+   * of the moving heads: the aim swings on a slow sine and opens outward with
+   * the midrange, so the shafts sweep across the room the way a programmed
+   * desk moves them, and a busy bar visibly spreads the rig.
+   */
+  const beamDescriptors = fixtures
+    .filter((f) => f.volumetric)
+    .map((f) => ({
+      source: f,
+      position: f.position,
+      direction: new THREE.Vector3(),
+      color: f.light.color,
+      intensity: 0,
+      angle: f.angle,
+      penumbra: f.penumbra,
+      range: f.range,
+    }));
 
-    entry.lens.material.color.copy(entry.light.color).multiplyScalar(0.22 + k * 1.9);
+  const driftAxis = new THREE.Vector3();
 
-    if (entry.beam) {
-      entry.beam.material.color.copy(entry.light.color);
-      entry.beam.material.opacity = beamsOn ? 0.022 + k * 0.115 : 0;
-      // A fully transparent mesh is still rasterised and still blended. Hiding
-      // it below the threshold where it contributes anything visible skips the
-      // fragment work entirely on a quiet passage.
-      entry.beam.visible = entry.beam.material.opacity > 0.004;
+  function updateBeams(t) {
+    for (let i = 0; i < beamDescriptors.length; i++) {
+      const beam = beamDescriptors[i];
+      const source = beam.source;
+
+      // A small angular wobble applied to the base direction. Rotating the
+      // aim rather than moving the target keeps the apex fixed, which is what
+      // a panning head does — a shaft whose origin slides is a shaft nobody
+      // believes.
+      const phase = i * 1.7;
+      const yaw = Math.sin(t * 0.27 + phase) * 0.055 + level.mid * 0.04 * (i % 2 ? 1 : -1);
+      const pitch = Math.sin(t * 0.19 + phase) * 0.030 - level.mid * 0.035;
+
+      driftAxis.copy(source.direction);
+      // Two small rotations about the world axes. At this magnitude the order
+      // is immaterial — the composition error is under a milliradian — which
+      // is the one case where not building a proper basis is defensible, and
+      // worth saying out loud rather than leaving as an accident.
+      driftAxis.applyAxisAngle(UP, yaw);
+      driftAxis.applyAxisAngle(RIGHT, pitch);
+
+      beam.direction.copy(driftAxis).normalize();
+
+      // Aim the actual light with it, so the pool on the floor moves with the
+      // shaft in the air.
+      source.light.target.position
+        .copy(source.position)
+        .addScaledVector(beam.direction, 2.0);
+
+      /**
+       * NO FLOOR. The shaft is visible only when the lamp is actually doing
+       * something.
+       *
+       * It used to sit at 0.10 even at rest, on the argument that the emitter
+       * has an idle level so there is genuinely light in the air. That is true
+       * and it was the wrong call: at rest the whole rig showed four permanent
+       * cones, which is the single thing that most gives away a fake
+       * volumetric, because real shafts are transient — you notice them when
+       * they move or when they come on.
+       *
+       * Squared, so the bottom of the range collapses. A linear map spends its
+       * first third on levels that are audibly nothing, and a shaft that
+       * brightens on room noise reads as unrelated to the music. Squaring puts
+       * the visible onset at roughly a third of full level, which is about
+       * where a hit becomes a hit.
+       */
+      const level01 = source.level ?? 0;
+      beam.intensity = level01 * level01;
     }
   }
 
   /**
-   * Move the yokes.
+   * The cabinets, driven by the bands.
    *
-   * Two terms doing two different jobs. The slow sine is a programmed sweep —
-   * what a lighting desk does to keep a static stage from reading as a
-   * photograph — and it runs whether or not anything is playing, which is most
-   * of what stops the idle scene from looking frozen. The midrange term is the
-   * reactive part: the heads spread and lift as the mix fills, so a busy bar
-   * visibly opens the rig out.
+   * DRIVER EXCURSION is the low end, moving along the cabinet's own baffle
+   * normal — free, because the drivers are children of the toed-in stack and
+   * +Z in that frame IS the baffle normal. 14 mm on a 170 mm cone is roughly
+   * 3x exaggerated; a physically accurate excursion at this scale is a
+   * fraction of a pixel, and the honest move is to say so rather than claim a
+   * simulation.
    *
-   * Both are small. A moving head that swings widely stops being a light and
-   * becomes the subject, and this scene already has a subject.
+   * CABINET RECOIL is the whole stack settling ~3.5 mm into its plinth. A box
+   * that moves as one object reads as heavy, where a box whose parts move
+   * independently reads as an assembly of decorations.
    */
-  function aimTowers(t) {
+  function updateCabinets() {
+    /**
+     * The bounce, considerably harder than it was.
+     *
+     * Three effects on one band, and they are stacked deliberately rather than
+     * being one bigger number, because a cabinet under load does three
+     * distinguishable things and doing only one of them at three times the
+     * amplitude reads as a glitch instead of as mass.
+     *
+     *   EXCURSION   the cones travel along the baffle normal — 26 mm now,
+     *               against 14. Roughly six times life size on a 170 mm
+     *               driver, which is a caricature and is stated as one: a
+     *               truthful excursion at this scale is a fraction of a pixel.
+     *   RECOIL      the whole stack drops into its plinth, 9 mm against 3.5.
+     *   SQUASH      the stack compresses vertically and swells slightly wide,
+     *               conserving rough volume. This is the new one, and it is
+     *               what makes the recoil read as the box ABSORBING something
+     *               rather than as the box being moved down. It is the same
+     *               trick mascot.js uses on a hit, for the same reason.
+     */
+    const excursion = level.bass * 0.026;
+    const recoil = level.bass * 0.009;
+    const squash = level.bass * 0.045;
+
+    // Programme level, not a band. The three are already envelope-followed
+    // with their own attack and release, so this needs no smoothing of its
+    // own — it inherits the ballistics of the things it sums.
+    const programme = Math.min(1, level.bass * 0.62 + level.mid * 0.48 + level.high * 0.30);
+
     for (const tower of towers) {
-      const phase = tower.side > 0 ? 1.7 : 0;
+      for (const cone of tower.woofers) cone.position.z = cone.userData.z0 + excursion;
 
-      tower.pan.rotation.y =
-        tower.basePan
-        + Math.sin(t * 0.27 + phase) * 0.070
-        + level.mid * 0.05 * tower.side;
+      tower.stack.position.y = tower.stackY0 - recoil;
+      tower.stack.scale.set(1 + squash * 0.35, 1 - squash, 1 + squash * 0.35);
 
-      tower.tilt.rotation.x =
-        tower.baseTilt
-        + Math.sin(t * 0.19 + phase) * 0.035
-        - level.mid * 0.045;
+      updateLeds(tower, programme);
     }
+  }
+
+  /**
+   * The RGB lamps: strips and rings, from one loop over one instanced mesh.
+   *
+   * The two kinds are driven differently on purpose, because they are
+   * answering different questions.
+   *
+   * THE STRIPS are a meter. Hue travels along the column and drifts with time
+   * so it is never one flat colour — that travelling gradient is what says
+   * "individually addressable" rather than "a coloured tube" — and brightness
+   * is the programme level as a bar rising from the bottom.
+   *
+   * THE RINGS are a chase. Hue rotates around the circle and the whole ring
+   * brightens with the BASS specifically, not the programme level, because a
+   * ring around a woofer should agree with what the woofer is doing. When a
+   * kick lands, the cone travels and its ring flares at the same instant —
+   * two representations of one number, which is the rule the whole project
+   * runs on.
+   *
+   * `setColorAt` writes the per-instance colour attribute, so sixty-four lamps
+   * in sixty-four colours remain one draw call. That attribute uploads once a
+   * frame; the matrices never do.
+   */
+  function updateLeds(tower, programme) {
+    const leds = tower.leds;
+    const slots = tower.ledSlots;
+    // Half a turn of the wheel apart, so the pair reads as complementary
+    // rather than as one repeated prop.
+    const towerHue = tower.side > 0 ? 0.5 : 0;
+
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+
+      if (slot.kind === 'strip') {
+        const hue = (elapsed * 0.07 + slot.along * 0.35 + towerHue) % 1;
+
+        /**
+         * A soft edge on the bar, not a hard one. A lamp sitting exactly at
+         * the level boundary would flicker on and off every frame during a
+         * loud passage, which reads as a fault; a smoothstep across a tenth of
+         * the strip turns that into the lamp simply being dim.
+         */
+        const lit = THREE.MathUtils.smoothstep(programme, slot.along - 0.10, slot.along + 0.02);
+        const value = 0.06 + lit * 0.94;
+        ledColour.setHSL(hue, 0.85, 0.5 * value + 0.04);
+      } else {
+        // Chase: the hue offset around the ring advances with time, so colour
+        // appears to run round the driver.
+        const hue = (elapsed * 0.22 + slot.phase + towerHue + slot.ring * 0.12) % 1;
+        const value = 0.14 + level.bass * 0.86;
+        ledColour.setHSL(hue, 0.9, 0.48 * value + 0.05);
+      }
+
+      leds.setColorAt(i, ledColour);
+    }
+
+    leds.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -1091,25 +1249,15 @@ export function initLighting({ scene }) {
       }
     }
 
-    // --- bass -> wash, and the woofer cones ------------------------------
+    // --- bass -> the floor washes and the two wide shafts ------------------
     setFixture(wash[0], IDLE + level.bass * PEAK.wash);
     setFixture(wash[1], IDLE + level.bass * PEAK.wash);
 
-    /**
-     * The drivers move with the low end.
-     *
-     * Eight millimetres of excursion on a 170 mm cone, along the cabinet's own
-     * baffle normal — which comes for free, because the woofers are children
-     * of the toed-in stack and +Z in that frame IS the baffle normal. Rotating
-     * the stack rotated the direction the cones travel in, with nothing to
-     * update. It is the smallest animation in the project and one of the most
-     * effective: it is the only thing in the scene that makes the sound
-     * visible as a mechanical fact rather than as a colour.
-     */
-    const excursion = level.bass * 0.008;
-    for (const tower of towers) {
-      for (const cone of tower.woofers) cone.position.z = cone.userData.z0 + excursion;
-    }
+    // The shafts run on the same envelope as the pools, so the two halves of
+    // the bass response cannot disagree about how hard the kick landed.
+    const bassLevel = IDLE + level.bass * PEAK.accent * 0.75;
+    setFixture(bassBeams[0], bassLevel);
+    setFixture(bassBeams[1], bassLevel);
 
     // --- mid -> accent colour, intensity, and the yokes -------------------
     //
@@ -1120,9 +1268,9 @@ export function initLighting({ scene }) {
     // backdrop survives at every level.
     //
     // Note the colour is written to the LIGHT and then copied outward to its
-    // lens and beam by setFixture. There is one authoritative colour per
-    // fixture and two things that read it, which is the rule the whole project
-    // runs on: derive, never duplicate.
+    // lens by setFixture. There is one authoritative colour per fixture and
+    // the things that read it, which is the rule the whole project runs on:
+    // derive, never duplicate.
     const accentLevel = IDLE + level.mid * PEAK.accent;
 
     accentLeft.light.color.setHSL(0.53 + level.mid * 0.06, 0.85, 0.58);
@@ -1131,7 +1279,7 @@ export function initLighting({ scene }) {
     accentRight.light.color.setHSL(0.065 - level.mid * 0.045, 0.85, 0.58);
     setFixture(accentRight, accentLevel);
 
-    aimTowers(elapsed);
+    updateBeams(elapsed);
 
     // --- high -> sparkle --------------------------------------------------
     //
@@ -1146,8 +1294,8 @@ export function initLighting({ scene }) {
     // --- overall lift -----------------------------------------------------
     ambient.intensity = 0.05 + (level.bass + level.mid + level.high) * 0.06;
 
-    // --- the air ----------------------------------------------------------
-    updateDust(dt);
+    // --- the cabinets -----------------------------------------------------
+    updateCabinets();
 
     // Published so a VU meter, the GUI, or a future reactive material can read
     // the bands without any of them touching an AnalyserNode. Same rule as
@@ -1156,82 +1304,12 @@ export function initLighting({ scene }) {
   }
 
   /**
-   * Drift the motes, and set how much light is in the air.
-   *
-   * Opacity follows the mids and highs rather than the bass, because those are
-   * the two bands whose fixtures actually have visible beams. Haze brightening
-   * on a kick that lights nothing above knee height would be the giveaway that
-   * the particles and the beams are not really connected.
-   */
-  function updateDust(dt) {
-    if (!dustOn) {
-      dust.visible = false;
-      return;
-    }
-
-    const opacity = Math.min(0.5, 0.05 + level.mid * 0.34 + level.high * 0.20);
-    dustMaterial.opacity = opacity;
-    dust.visible = opacity > 0.012;
-    if (!dust.visible) return;
-
-    const top = DUST.floor + DUST.h;
-
-    for (let i = 0; i < DUST.count; i++) {
-      const j = i * 3;
-      dustPositions[j + 1] += dustRise[i] * dt;
-
-      // A little lateral wander, out of phase per mote, so the field does not
-      // rise as a rigid block. One sine per particle is what separates "dust"
-      // from "a texture scrolling upward".
-      dustPositions[j] += Math.sin(elapsed * 0.5 + dustPhase[i]) * 0.012 * dt;
-
-      if (dustPositions[j + 1] > top) {
-        // Recycled rather than respawned: the buffer stays the same length and
-        // nothing is allocated, which is the whole reason a particle system is
-        // cheap in the first place.
-        dustPositions[j + 1] = DUST.floor;
-        dustPositions[j] = (Math.random() - 0.5) * DUST.w;
-      }
-    }
-
-    dustGeometry.attributes.position.needsUpdate = true;
-  }
-
-  // -----------------------------------------------------------------------
-  // Detail levers, for quality.js
-  //
-  // The two transparent effects are the first things a weak machine gives up,
-  // and they are exposed as named switches rather than as a tier object so
-  // that quality.js never has to know what a fixture is. It says "no beams";
-  // this module decides what that means.
-  //
-  // Transparency is the right thing to cut first because it is pure overdraw:
-  // a beam cone covers a large area of screen, contributes nothing to depth,
-  // and is blended over whatever is already there. Cutting it removes
-  // fragments without removing a single object from the scene.
-  // -----------------------------------------------------------------------
-
-  function setBeams(on) {
-    beamsOn = on;
-    if (!on) {
-      for (const entry of fixtures) {
-        if (entry.beam) entry.beam.visible = false;
-      }
-    }
-  }
-
-  function setDust(on) {
-    dustOn = on;
-    if (!on) dust.visible = false;
-  }
-
-  /**
    * Toggle the reactive rig as a unit.
    *
    * One `visible` flag on the parent Group rather than a flag per light. A
    * Group's visibility gates its whole subtree during traversal, so the
-   * renderer skips the fixtures, the stacks and the dust entirely instead of
-   * drawing them at zero.
+   * renderer skips the fixtures and the stacks entirely instead of drawing
+   * them at zero.
    */
   function setEnabled(on) {
     group.visible = on;
@@ -1241,11 +1319,20 @@ export function initLighting({ scene }) {
     attach,
     update,
     setEnabled,
-    setBeams,
-    setDust,
     level,
     fixtures,
     towers,
+    /**
+     * The shafts, handed to volumetrics.js every frame by main.js.
+     *
+     * A live array of descriptors rather than a callback or a direct
+     * reference: this module decides what a beam IS — where it starts, which
+     * way it points, how bright and what colour — and volumetrics.js decides
+     * how to draw one. Neither imports the other, which is the same rule the
+     * audio and geometry halves have followed since phase 1.
+     */
+    beams: beamDescriptors,
+    towerShadows,
     lights: {
       wash: wash.map((f) => f.light),
       accent: accent.map((f) => f.light),

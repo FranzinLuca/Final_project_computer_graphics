@@ -79,6 +79,28 @@ export const PALETTE = {
   ink: 0x1a1d2b,        // pad glyphs and anything that reads as printed
   accent: 0xffb257,     // knob indicators and small warm highlights
 
+  /**
+   * Anodised aluminium for the bezel frame and the wing edge rails.
+   *
+   * The single most identifying feature of real grid hardware, and the thing
+   * whose absence made the object read as two moulded plates. A dark plastic
+   * frame around dark plastic pads has no edge; a metal frame draws a bright
+   * outline around the pad field, which is what tells the eye where the
+   * instrument stops and how thick it is. It is also the only surface on the
+   * rig that returns a moving specular as the camera orbits.
+   */
+  bezel: 0x6d7893,
+  bezelDeep: 0x3d4459,  // the chamfer under it, in shadow
+
+  // Soft buttons on the front band.
+  button: 0x1b1f2c,
+  buttonLit: 0x9fe8ff,
+  buttonRec: 0xff5f52,
+
+  // The display: near-black glass, phosphor green-cyan ink.
+  screen: 0x07131a,
+  screenInk: 0x6ff0d8,
+
   // --- the speaker stacks --------------------------------------------------
   //
   // Three values, not one. A PA cabinet is a painted plywood box with a black

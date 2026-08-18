@@ -21,9 +21,8 @@
  *
  * Dropping from 2.0 to 1.5 therefore removes 44% of the work. Nothing else
  * available here is remotely competitive: halving the shadow map saves one
- * depth-only pass at a quarter resolution, and turning off the beam cones saves
- * three transparent draws. Both are worth having, and both are worth less than
- * the first step of the pixel ratio ladder.
+ * depth-only pass at a quarter resolution, which is worth having and is worth
+ * far less than the first step of the pixel ratio ladder.
  *
  * It is also the least visible loss, because almost every edge in the scene is
  * a filleted curve under smooth shading rather than a hard line — the geometry
@@ -76,22 +75,39 @@
  * ratio, because rendering above native resolution buys nothing on any display
  * and costs the square of the difference.
  */
+/**
+ * The ladder lost two rungs' worth of switches when the beam cones and the
+ * dust field were removed, and it is worth noting that this is the better
+ * outcome rather than a loss of capability. A quality tier that turns an
+ * effect off is an admission that the effect is expensive enough to be
+ * optional; deleting the effect because it never looked right removes the cost
+ * on every machine, not just the slow ones. What is left is the pixel ratio
+ * ladder, which was always the lever that mattered.
+ */
+/**
+ * `steps` is the volumetric march count, and it is the second-best lever in
+ * the ladder after pixel ratio — better than the shadow map, because the
+ * shader runs its inner loop once per beam per step per pixel, so the cost is
+ * strictly linear in it and it is a large constant.
+ *
+ * It also degrades unusually gracefully. Fewer steps with the same per-pixel
+ * dither means more noise in the shafts, and noise in a volume of haze looks
+ * like haze. Halving the count is a visible change only if you know to look
+ * for it, where halving the pixel ratio is visible on every edge in the frame.
+ *
+ * The last two rungs drop the pass entirely, which also removes the depth
+ * prepass that feeds it — a whole scene traversal, not just a cheaper shader.
+ * That is why the ladder gets steeper at the bottom: the cheap savings are
+ * spent by then and what is left is structural.
+ */
 const TIERS = [
-  { name: 'High',    pixelRatio: 2.00, shadowMap: 2048, beams: true,  dust: true,  shadows: true },
-  { name: 'High -',  pixelRatio: 1.75, shadowMap: 2048, beams: true,  dust: true,  shadows: true },
-  { name: 'Medium',  pixelRatio: 1.50, shadowMap: 1024, beams: true,  dust: true,  shadows: true },
-  { name: 'Medium -', pixelRatio: 1.25, shadowMap: 1024, beams: true, dust: true,  shadows: true },
-  { name: 'Low',     pixelRatio: 1.00, shadowMap: 1024, beams: true,  dust: true,  shadows: true },
-  /**
-   * Beams go before dust, which is the opposite of what their relative
-   * subtlety suggests and the right way round for what they cost. A beam cone
-   * covers a large, near-fullscreen-adjacent area of blended fragments; the
-   * whole dust field is 260 sprites of eleven millimetres, which even at close
-   * range is a small fraction of that area. Cutting the expensive effect first
-   * is what lets the distinctive one survive a tier longer.
-   */
-  { name: 'Low -',   pixelRatio: 1.00, shadowMap: 512,  beams: false, dust: true,  shadows: true },
-  { name: 'Minimum', pixelRatio: 0.75, shadowMap: 512,  beams: false, dust: false, shadows: false },
+  { name: 'High',     pixelRatio: 2.00, shadowMap: 2048, steps: 28, shadows: true },
+  { name: 'High -',   pixelRatio: 1.75, shadowMap: 2048, steps: 24, shadows: true },
+  { name: 'Medium',   pixelRatio: 1.50, shadowMap: 1024, steps: 20, shadows: true },
+  { name: 'Medium -', pixelRatio: 1.25, shadowMap: 1024, steps: 16, shadows: true },
+  { name: 'Low',      pixelRatio: 1.00, shadowMap: 1024, steps: 12, shadows: true },
+  { name: 'Low -',    pixelRatio: 1.00, shadowMap: 512,  steps: 8,  shadows: true },
+  { name: 'Minimum',  pixelRatio: 0.75, shadowMap: 512,  steps: 8,  shadows: false },
 ];
 
 /** Frames to ignore at startup. */

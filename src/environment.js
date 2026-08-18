@@ -33,9 +33,42 @@
  * survives being orbited, which is the requirement a three-sided booth cannot
  * meet.
  *
- * The wall takes the backdrop's own colour, deliberately. The gradient behind
- * it is the same scene continuing upward, so where the cyc ends the sky picks
- * up rather than cutting.
+ *
+ * PHASE 15: THE ROOM IS NOW CLOSED
+ *
+ * The cyc solved the horizon and left a hole in the sky. It was an open
+ * cylinder: a floor sweep, a wall, and then nothing above `cycTop`, so tilting
+ * the camera up put the rim of the wall against the background gradient and
+ * showed the viewer that they were standing inside a bucket. Every problem the
+ * cyc was built to fix — no edges, no corners, nothing that ends in mid-air —
+ * it reintroduced at the top.
+ *
+ * The fix is to close it. The profile now continues past the wall into a
+ * DOME, so the lathe describes a single sealed volume from the floor lip to
+ * the apex and there is no direction the camera can point that leaves the
+ * room. `scene.background` is consequently never seen, which is worth stating
+ * plainly: it is kept only because a background is cheap insurance against a
+ * one-frame gap during a resize.
+ *
+ * The room also grew, from a 3.3-unit wall to 4.2 and from 2.4 of height to
+ * 4.9. That is not padding. The shafts are the thing this scene is now built
+ * around, and a shaft is only as impressive as the distance it crosses — in a
+ * low room the emitters sit just above the instrument and the beams are short
+ * diagonal streaks. Raising the ceiling lets them travel, and travel is the
+ * whole of what makes stage lighting read as stage lighting.
+ *
+ * TWO TANGENCY CONDITIONS, not one. The floor fillet already had to leave the
+ * ground horizontally and meet the wall vertically. The dome has the mirror
+ * problem at the other end: it must leave the wall vertically and arrive at
+ * the apex horizontally, or there is a visible crease ringing the ceiling
+ * exactly where the eye is drawn when it looks up. A quarter ellipse of
+ * horizontal semi-axis `cycWall` and vertical semi-axis `domeApex - cycTop`
+ * satisfies both exactly, for the same reason the floor's quarter circle does:
+ * the parameterisation is tangent to the axes at its ends by construction, not
+ * by fitting.
+ *
+ * The wall takes the backdrop's own colour at the bottom and darkens towards
+ * the apex, so the volume reads as depth rather than as a lid.
  */
 
 import * as THREE from 'three';
@@ -64,12 +97,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export const ROOM = {
-  floorR: 2.40,     // flat disc, planar UVs
-  cycLip: 2.30,     // where the cyc's flat lip begins, under the floor edge
-  cycStart: 2.50,   // where the fillet leaves the ground
-  cycWall: 3.30,    // radius of the vertical wall
-  fillet: 0.80,     // radius of the curve joining floor to wall
-  cycTop: 2.40,     // height the wall stops at
+  floorR: 3.20,     // flat disc, planar UVs
+  cycLip: 3.10,     // where the cyc's flat lip begins, under the floor edge
+  cycStart: 3.30,   // where the fillet leaves the ground
+  cycWall: 4.20,    // radius of the vertical wall
+  fillet: 0.90,     // radius of the curve joining floor to wall
+  cycTop: 3.30,     // height the wall stops and the dome begins
+  domeApex: 4.90,   // height of the closed apex
   lipDrop: 0.003,   // how far the lip sits below the floor, to avoid z-fighting
 };
 
@@ -215,7 +249,20 @@ export function buildEnvironment({ scene, renderer }) {
    * acquires depth. The instrument sits inside 1.5 units of the target, so
    * nothing on it is ever fogged.
    */
-  scene.fog = new THREE.Fog(PALETTE.skyBottom, 2.6, 7.0);
+  /**
+   * Retuned again for the closed room, which is now nearly twice the size.
+   *
+   * The far side of a 4.2-unit dome is up to nine units from the camera, so
+   * the old 2.6–7.0 range saturated everything past the middle of the floor
+   * and flattened exactly the depth the enclosure was built to create. Pushed
+   * out to 4.0–13.0 it goes back to being aerial perspective: the near wall
+   * stays saturated, the far one washes slightly towards the backdrop value,
+   * and a dome that would otherwise be uniformly lit acquires distance.
+   *
+   * The instrument sits inside 1.5 units of the target, so nothing on it is
+   * ever fogged.
+   */
+  scene.fog = new THREE.Fog(PALETTE.skyBottom, 4.0, 13.0);
 
   // -----------------------------------------------------------------------
   // Floor — polished concrete
@@ -312,7 +359,14 @@ export function buildEnvironment({ scene, renderer }) {
     new THREE.Vector2(ROOM.cycStart, -ROOM.lipDrop),
   ];
 
-  const ARC_SEGMENTS = 20;
+  const ARC_SEGMENTS = 22;
+
+  // --- floor fillet: a quarter circle centred at (cycWall, fillet) ---------
+  //
+  // At 180 degrees it is horizontal at radius cycStart; at 90 degrees it is
+  // vertical at cycWall. Which is why the fillet radius and the difference
+  // between the two radii are the same number and not two numbers that happen
+  // to be close.
   for (let i = 1; i <= ARC_SEGMENTS; i++) {
     const t = Math.PI - (i / ARC_SEGMENTS) * (Math.PI / 2);
     profile.push(new THREE.Vector2(
@@ -321,22 +375,45 @@ export function buildEnvironment({ scene, renderer }) {
     ));
   }
 
+  // --- the wall -----------------------------------------------------------
   profile.push(new THREE.Vector2(ROOM.cycWall, ROOM.cycTop));
 
+  // --- dome: a quarter ellipse from the wall top to the apex ---------------
+  //
+  // (cycWall·cos t, cycTop + rise·sin t) for t from 0 to pi/2. At t = 0 it
+  // sits on the wall with a vertical tangent; at t = pi/2 it reaches the axis
+  // with a horizontal one. Both tangency conditions hold by construction, so
+  // there is no crease where the wall becomes the ceiling and none at the
+  // apex — which matters because the apex is dead centre of frame the moment
+  // anybody looks up.
+  //
+  // An ellipse rather than a hemisphere because the two semi-axes are
+  // different: 4.2 across and 1.6 up. A hemisphere would put the ceiling 4.2
+  // units above the floor at the centre, which is a silo. The flattened dome
+  // reads as a room.
+  const DOME_SEGMENTS = 24;
+  const rise = ROOM.domeApex - ROOM.cycTop;
+
+  for (let i = 1; i <= DOME_SEGMENTS; i++) {
+    const t = (i / DOME_SEGMENTS) * (Math.PI / 2);
+    profile.push(new THREE.Vector2(
+      ROOM.cycWall * Math.cos(t),
+      ROOM.cycTop + rise * Math.sin(t)
+    ));
+  }
+
   /**
-   * 21 repeats around and 3 up puts the paint mottle at roughly one tile per
-   * world unit on the wall, matching the floor's density closely enough that
-   * the two do not read as different scales of the same room.
+   * The final point sits exactly on the axis.
    *
-   * The horizontal density is not actually uniform: LatheGeometry's u runs
-   * 0..1 around the axis regardless of radius, so the same texture width
-   * covers 14.5 units of circumference at the lip and 20.7 at the top — a 43%
-   * stretch through the fillet. On a wall whose entire specification is "no
-   * readable detail" this is invisible. On the floor it would not be, which is
-   * the other reason the floor is a separate disc with planar UVs rather than
-   * part of this lathe: a lathed floor also collapses every u to a single
-   * point at the centre, precisely where the instrument sits.
+   * `LatheGeometry` collapses every u at radius zero onto a single line of
+   * vertices, so the apex is a pole — the same degeneracy a sphere has, and
+   * harmless here for the same reason: nothing is textured tightly enough at
+   * the apex for the UV pinch to be visible, and the surface normals are
+   * generated from the profile tangent, which is horizontal there and
+   * therefore correct.
    */
+  profile.push(new THREE.Vector2(0, ROOM.domeApex));
+
   const paint = configureMaps(paintedWallMaps(256), 21, 3, anisotropy);
 
   const cycMaterial = new THREE.MeshStandardMaterial({
@@ -365,7 +442,59 @@ export function buildEnvironment({ scene, renderer }) {
     side: THREE.BackSide,
   });
 
-  const cyc = new THREE.Mesh(new THREE.LatheGeometry(profile, 96), cycMaterial);
+  const cycGeometry = new THREE.LatheGeometry(profile, 96);
+
+  /**
+   * The ceiling darkens with height, baked into vertex colours.
+   *
+   * A closed dome the same value all the way over reads as a LID. Every real
+   * venue has a ceiling that disappears — not because it is painted black but
+   * because nothing is aimed at it, so it falls away into the dark and the
+   * room reads as having no top at all. That is the effect the enclosure needs
+   * in order to solve the rim problem without introducing a worse one.
+   *
+   * Vertex colours rather than a gradient texture, and the reason is that the
+   * wall already has one. `paintedWallMaps` is tiled 21 across and 3 up, so a
+   * gradient painted into that map would repeat three times on the way to the
+   * apex. Vertex colour MULTIPLIES the map, so the mottle survives at full
+   * detail while its value falls off exactly once over the whole height —
+   * which is a thing per-vertex data can express and a tiled texture cannot.
+   *
+   * Held at full through the floor sweep and the lower wall, since that band
+   * is where the light pools land and where a falloff would be visible as a
+   * band rather than as depth. Everything above `cycTop` is the part nobody is
+   * lighting.
+   *
+   * Written as a grey multiplier rather than as a colour, so the tint stays
+   * whatever `cycMaterial.color` says it is and the two are independently
+   * adjustable. Vertex colours are consumed as linear values, which is correct
+   * here: this is a multiplier, not a colour to be decoded.
+   */
+  {
+    const position = cycGeometry.attributes.position;
+    const colours = new Float32Array(position.count * 3);
+
+    const FULL_UNTIL = ROOM.cycTop * 0.42;
+    const APEX_VALUE = 0.10;
+
+    for (let i = 0; i < position.count; i++) {
+      const y = position.getY(i);
+      const t = THREE.MathUtils.smoothstep(y, FULL_UNTIL, ROOM.domeApex);
+      // Squared on top of the smoothstep: the eye reads brightness roughly
+      // logarithmically, so a linear ramp to a tenth still looks like a lit
+      // ceiling for most of its length. The extra power puts the visible
+      // falloff where the geometry actually curves over.
+      const value = THREE.MathUtils.lerp(1.0, APEX_VALUE, t * t);
+      colours[i * 3] = value;
+      colours[i * 3 + 1] = value;
+      colours[i * 3 + 2] = value;
+    }
+
+    cycGeometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    cycMaterial.vertexColors = true;
+  }
+
+  const cyc = new THREE.Mesh(cycGeometry, cycMaterial);
   cyc.receiveShadow = true;
   /**
    * It does not cast. Nothing is outside it to cast onto, and the key light's
