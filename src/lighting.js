@@ -98,22 +98,39 @@
  * and four things that ride them.
  *
  *
- * WHERE THE LIGHTS GO, AND WHY LOW
+ * WHERE THE LIGHTS GO: ONE RING, AND TWO LAMPS THAT GRAZE
  *
- * The reactive lights sit LOW and graze across the slab, which is 60 mm thick.
- * Light from overhead onto a flat horizontal object produces an almost
- * constant lambert term across its whole top face — no gradient, no form, just
- * a brighter flat. Grazing light varies sharply over the bezel rails and the
- * wing surfaces, and it spends most of its energy on the ground plane, which
- * is now both the largest surface in the scene and a semi-gloss one that
- * returns a raking highlight.
+ * Every emitter's position and aim is derived from a BEARING about the centre
+ * of the room — one radius, one height, one convergence point, five bearings
+ * 72 degrees apart, plus a downlight over the middle. Nothing is typed twice
+ * and nothing can drift out of the set, which is what the previous
+ * arrangement had done: four heights, three radii and five separate aims,
+ * each defensible on its own and none of them agreeing with the others.
+ *
+ * The two floor washes are the exception and they are deliberately LOW, so
+ * they graze across the slab rather than falling onto it. Light from overhead
+ * onto a flat horizontal object produces an almost constant lambert term
+ * across its whole top face — no gradient, no form, just a brighter flat.
+ * Grazing light varies sharply over the bezel rails and the wing surfaces,
+ * and it spends most of its energy on the ground plane, which is both the
+ * largest surface in the scene and a semi-gloss one that returns a raking
+ * highlight.
+ *
+ *
+ * COLOUR IS DERIVED, NOT AUTHORED
+ *
+ * No fixture owns a colour. Each owns a place on the wheel taken from its own
+ * bearing, and every frame adds one shared clock to all of them — so the rig
+ * is a gradient wrapped once around the room, rotating slowly, pushed along by
+ * how much is playing. Two fixtures can never converge on one hue because
+ * their offsets are fixed and distinct, and the whole scheme moves with one
+ * number rather than eight.
  */
 
 import * as THREE from 'three';
 import { bus } from './events.js';
 import { PALETTE } from './palette.js';
 import { roundedBoxGeometry, roundedCylinderGeometry } from './geometry.js';
-import { radialFalloffTexture } from './textures.js';
 import { makeContactShadow } from './environment.js';
 
 // ---------------------------------------------------------------------------
@@ -281,11 +298,88 @@ const ENVELOPE = {
  * divides by twenty. Doing this arithmetic rather than turning knobs is what
  * makes "the room got bigger" a change of scale instead of a re-lighting job.
  */
+/**
+ * Re-costed for a lit room rather than a dark one, which is a bigger change
+ * than any of the distance re-costings before it.
+ *
+ * Those were arithmetic: a fixture moved, so its peak scaled by the square of
+ * the distance ratio. This one is about CONTRAST. On a near-black stage a
+ * fixture only had to beat an ambient floor of about 0.05, so peaks of 15 and
+ * 24 were reasonable. The ambient term is now roughly 0.55 from the
+ * environment plus a hemisphere at 1.15 plus a key at 1.35 — an order of
+ * magnitude more — and a reactive light has to sit ON TOP of that without
+ * blowing the pastel surfaces to white.
+ *
+ * Neutral tone mapping does not protect highlights the way AgX does, which is
+ * the price of it holding hue (and the reason it was chosen for exactly this
+ * palette). So the ceiling is lower than it looks: the cream slab has albedo
+ * near 0.94, and past roughly 6 units of additional illuminance it clips to
+ * white and the pastel is gone.
+ *
+ * These are therefore a fraction of what they were, and the reactive rig now
+ * TINTS a lit scene rather than revealing an unlit one. That is a real loss in
+ * drama and the honest consequence of the art direction: a bright room cannot
+ * also be a room where the lights are the only thing you can see.
+ */
 const PEAK = {
-  wash: 7.2,
+  /**
+   * Re-costed once more, and this one is not arithmetic on a distance ratio —
+   * the washes MOVED, from 1.02 units out to 2.25, which is more than double.
+   * Illuminance is intensity over distance squared, so standing still would
+   * have cost a factor of 4.9 on paper.
+   *
+   * It is deliberately not paid in full. The old pair stood so close to the
+   * instrument that they were the brightest thing in the room by a wide
+   * margin, and most of their output landed on two square feet of floor
+   * rather than raking across it. 16 puts roughly 3 units of illuminance on
+   * the slab at a full kick against the old 5.9, spread over an area several
+   * times larger — which is what "wash" is supposed to mean.
+   */
+  wash: 16.0,
   accent: 15.0,
   sparkle: 24.0,
 };
+
+/**
+ * THE COLOUR OF EVERY FIXTURE, IN TWO NUMBERS.
+ *
+ * Saturation and lightness are shared by the whole rig and only the HUE
+ * varies, per fixture and over time. That is what makes the rig read as one
+ * gradient rather than as eight lamps that happen to be coloured: two lights
+ * of different hue but equal saturation and lightness are perceived as the
+ * same light in two places, which is exactly the reading a lighting desk with
+ * one colour palette loaded gives.
+ *
+ * Saturation is high, and that is a requirement rather than a preference: a
+ * volumetric shaft is ADDITIVE, so it is seen both as a brightening and as a
+ * hue displacement from what is behind it. A desaturated beam supplies only
+ * the first, and brightening alone is the change the eye is worst at
+ * detecting — which is why the shaft that used to be white was invisible at a
+ * peak of 24 while a saturated one at the same level reads clearly.
+ *
+ * Lightness sits at 0.55 rather than higher because `setHSL` above 0.5 starts
+ * trading saturation away for luminance, and luminance is what `PEAK` is for.
+ */
+const BEAM_SATURATION = 0.88;
+const BEAM_LIGHTNESS = 0.55;
+
+/**
+ * How fast the whole gradient rotates, in turns per second, and how much the
+ * programme level pushes it along.
+ *
+ * A full revolution in about twenty-eight seconds at rest. Slow enough that at
+ * any instant the rig reads as A COLOUR SCHEME rather than as an effect, fast
+ * enough that a minute of watching never shows the same frame twice. Past
+ * roughly 0.15 it stops being stage lighting and becomes a disco light, which
+ * is a different and much cheaper idea.
+ *
+ * The music term means a dense passage visibly drives the colour along
+ * instead of only brightening it — the hue becomes a second output channel
+ * for the same measurement, which is the rule the rest of the rig runs on.
+ */
+const HUE_RATE = 0.036;
+const HUE_PUSH = 0.075;
+
 
 /**
  * A floor under every fixture, so the rig is lit before a note is played.
@@ -424,15 +518,26 @@ export function initLighting({ scene }) {
   );
 
   const housingMat = new THREE.MeshStandardMaterial({
-    color: PALETTE.slabDeep,
-    metalness: 0.1,
-    roughness: 0.55,
+    color: PALETTE.cabFace,
+    metalness: 0.0,
+    roughness: 0.75,
   });
 
+  /**
+   * Pale plastic, not metal.
+   *
+   * Every metallic surface in the project lost its argument with the new
+   * background at once. Metalness has no diffuse response — a metal is
+   * entirely what it reflects — and what it now reflects is a near-white
+   * environment, so a chrome part renders as a slightly shiny white part and
+   * disappears into the ground behind it. Dropping metalness and raising
+   * roughness turns the same geometry into painted trim, which separates by
+   * value and holds its colour from every angle.
+   */
   const poleMat = new THREE.MeshStandardMaterial({
     color: PALETTE.mech,
-    metalness: 0.65,
-    roughness: 0.38,
+    metalness: 0.0,
+    roughness: 0.62,
   });
 
   /**
@@ -444,7 +549,7 @@ export function initLighting({ scene }) {
   const cabMat = new THREE.MeshStandardMaterial({
     color: PALETTE.cab,
     metalness: 0.0,
-    roughness: 0.78,
+    roughness: 0.85,
   });
 
   /**
@@ -456,6 +561,16 @@ export function initLighting({ scene }) {
    * angle, so the box around it reads lighter no matter where the fixtures
    * happen to be pointing — and the drivers mounted on its face read lighter
    * still, which is the contrast that makes them legible at this size.
+   */
+  /**
+   * The baffle stays dark, and it is now one of only two dark surfaces in the
+   * scene — the other is the instrument's display.
+   *
+   * That scarcity is the point. On a dark stage a black grille was one dark
+   * thing among many and identified nothing; against a pastel ground it is the
+   * only hole in the image, which is exactly what makes a speaker read as a
+   * speaker from across the room. It is navy rather than black so it belongs
+   * to the palette rather than sitting outside it.
    */
   const grilleMat = new THREE.MeshStandardMaterial({
     color: PALETTE.grille,
@@ -555,8 +670,12 @@ export function initLighting({ scene }) {
    * would spend a third of the shader's budget on a faint even haze across the
    * whole frame.
    */
-  function emitter({ colour, position, aim, angle, penumbra, peak, range = 6, volumetric = false }) {
-    const light = new THREE.SpotLight(colour, IDLE, 0, angle, penumbra, 2);
+  function emitter({ hue, position, aim, angle, penumbra, peak, range = 6, volumetric = false }) {
+    // The colour is not a parameter any more, it is a POSITION ON THE WHEEL.
+    // `update()` rewrites it every frame from the same hue plus a shared
+    // clock, so the value set here only has to be right for frame one.
+    const light = new THREE.SpotLight(0xffffff, IDLE, 0, angle, penumbra, 2);
+    light.color.setHSL(hue, BEAM_SATURATION, BEAM_LIGHTNESS);
     light.castShadow = false;
     light.position.set(...position);
     group.add(light);
@@ -573,6 +692,8 @@ export function initLighting({ scene }) {
       volumetric,
       angle,
       penumbra,
+      /** Where this fixture sits on the colour wheel, before the clock. */
+      hue,
       position: light.position,
       direction: new THREE.Vector3(...aim).sub(light.position).normalize(),
     };
@@ -791,125 +912,247 @@ export function initLighting({ scene }) {
   const towerLeft = buildTower(-1);
   const towerRight = buildTower(1);
 
+  // -----------------------------------------------------------------------
+  // THE OVERHEAD RING
+  //
+  // Every emitter used to carry its own hand-typed position and its own
+  // hand-typed aim, and the numbers had drifted apart over four
+  // re-costings: apexes at 3.30, 3.95, 4.10 and 4.35, horizontal offsets of
+  // 2.30, 2.55 and 2.60, one pair behind the instrument and another pair in
+  // front of it, each aiming at a different point. Every one of those numbers
+  // was defensible on its own and the set was not. Lights at four heights and
+  // three radii do not read as a rig; they read as lamps that were placed one
+  // at a time, which is exactly what they were.
+  //
+  // So position and aim are now DERIVED FROM A BEARING, the same way the
+  // yokes derived their pan and tilt before the fixtures left the frame. One
+  // radius, one height, one convergence point, and five bearings spaced
+  // evenly around the room. That buys three things at once:
+  //
+  //   The apexes lie on a circle, so no shaft is longer or steeper than its
+  //   neighbour and the frame has no odd man out.
+  //
+  //   The set is mirror-symmetric about the x = 0 plane, so orbiting from one
+  //   side to the other shows the same rig rather than a different one.
+  //
+  //   Moving the whole rig — higher, wider, tighter — is one number, and
+  //   every aim follows it. The old arrangement needed eleven edits and a
+  //   re-check of each pool's landing point.
+  // -----------------------------------------------------------------------
+
+  const DEG = Math.PI / 180;
+
+  const RING = {
+    /**
+     * Horizontal distance from the centre of the room to every apex.
+     *
+     * Outside the speaker stacks at 1.38 and outside the console at 1.66, so
+     * no shaft passes through an object on its way down, and inside the fog's
+     * near plane so the emitters are in clear air.
+     */
+    radius: 2.55,
+
+    /**
+     * Apex height, shared by all five ring fixtures.
+     *
+     * The constraint that used to set this was the dome's apex at 4.9; there
+     * is no dome now, so what remains is the camera. The highest authored shot
+     * puts the top of the frame at roughly y = 3.2 over the instrument, so
+     * 3.6 keeps every apex out of shot while the shafts themselves fill it —
+     * which is the whole reason the fixtures were deleted rather than moved.
+     */
+    height: 3.60,
+
+    /**
+     * The height the beams converge at, and how far past the centre each one
+     * aims.
+     *
+     * Aiming every fixture at the origin would stack five pools on one spot
+     * and cross five shafts at one point, which reads as a spotlight effect
+     * rather than as a rig. Aiming each one at a point 0.30 beyond the centre
+     * — on its own bearing, so the offsets cancel by symmetry — makes the
+     * shafts cross over a VOLUME above the instrument instead of at a point,
+     * and spreads the pools into a ring of overlapping ellipses around it.
+     * That volume is the thing the raymarch exists to render.
+     */
+    focusY: 0.34,
+    cross: 0.30,
+  };
+
   /**
-   * The three shafts.
+   * Bearings, in the same convention the camera uses: measured about +Y from
+   * +Z (the front, where the player stands) towards +X (stage right).
    *
-   * Apexes at y = 2.2, which is chosen against two constraints rather than by
-   * eye. It has to be above the camera's field of view in every authored shot
-   * — the highest, Room, looks at y = 0.34 from a radius of 2.7, so a 45-degree
-   * vertical FOV reaches roughly y = 1.5 at the instrument — and it has to be
-   * BELOW the cyclorama's top edge at 2.4. That second one is not obvious and
-   * matters: put an emitter outside the room and the ray from the camera hits
-   * the cyc wall before it reaches the apex, so the depth pass cuts the shaft
-   * off at the wall's silhouette and the beam appears to start in mid-air with
-   * a hard horizontal edge.
+   * Five positions 72 degrees apart, mirrored about the front-to-back axis.
+   * The gap is at the front by construction — there is no fixture at bearing
+   * zero — because that is where the camera lives on every shot but one, and a
+   * shaft coming straight down the camera's own axis is the one that shows
+   * least.
+   */
+  const BEARING = {
+    frontLeft: -36 * DEG,
+    frontRight: 36 * DEG,
+    rearLeft: -108 * DEG,
+    rearRight: 108 * DEG,
+    back: 180 * DEG,
+  };
+
+  /** A point on the ring at `bearing`. */
+  function apexAt(bearing, radius = RING.radius, height = RING.height) {
+    return [Math.sin(bearing) * radius, height, Math.cos(bearing) * radius];
+  }
+
+  /** The point a fixture at `bearing` aims at: past the centre, on its axis. */
+  function aimFrom(bearing, cross = RING.cross, y = RING.focusY) {
+    return [-Math.sin(bearing) * cross, y, -Math.cos(bearing) * cross];
+  }
+
+  /**
+   * A fixture's place in the colour wheel, taken from where it stands.
    *
-   * Cool from the left, warm from the right, magenta from behind. The first
-   * two follow the same reasoning as before — Otto is amber and stands on the
-   * right, so the warm side reinforces the colour he already is while the cool
-   * shaft crosses the slab and rims his silhouette. The third exists purely so
-   * that shafts CROSS: two beams converging on one point overlap in a line,
-   * where three from different bearings overlap in a volume, and the fusion is
-   * the whole reason the raymarch was worth building.
+   * This is the whole of the gradient. Hue is not authored per lamp and it is
+   * not random: it is the fixture's own bearing expressed in turns, so the
+   * wheel is wrapped once around the room and any two neighbours are exactly
+   * 72 degrees of hue apart, the way they are 72 degrees of arc apart. Adding
+   * one clock to all five then rotates the entire gradient around the room
+   * without ever collapsing two fixtures onto the same colour — see
+   * `update()`.
+   */
+  function hueAt(bearing) {
+    return ((bearing / (Math.PI * 2)) % 1 + 1) % 1;
+  }
+
+  /**
+   * MID — a pair of shafts from the rear quarters, raking forward.
    *
-   * Narrow, at 0.16 radians. Beam visibility per unit length goes as intensity
-   * over solid angle, so a tight cone reads as a shaft where a wide one reads
-   * as a general haze — which is also why the two floor washes below are not
-   * marched at all.
+   * The classic back pair: they cross over the instrument, rim the mascot's
+   * silhouette from behind and put their pools on the floor between the
+   * instrument and the camera, which is the half of the floor the viewer can
+   * see. Narrow, at 0.26 radians — beam visibility per unit length goes as
+   * intensity over solid angle, so a tight cone reads as a shaft where a wide
+   * one reads as a general haze, which is also why the two floor washes below
+   * are not marched at all.
    */
   const accentLeft = emitter({
-    colour: 0x35d6ff,
-    position: [-2.30, 3.95, -0.85],
-    aim: [-0.22, 0.05, 0.12],
+    position: apexAt(BEARING.rearLeft),
+    aim: aimFrom(BEARING.rearLeft),
+    hue: hueAt(BEARING.rearLeft),
     angle: 0.26,
     penumbra: 0.72,
     peak: PEAK.accent,
-    range: 6.0,
+    range: 5.4,
     volumetric: true,
   });
 
   const accentRight = emitter({
-    colour: 0xff7a3c,
-    position: [2.30, 3.95, -0.85],
-    aim: [0.22, 0.05, 0.12],
+    position: apexAt(BEARING.rearRight),
+    aim: aimFrom(BEARING.rearRight),
+    hue: hueAt(BEARING.rearRight),
     angle: 0.26,
     penumbra: 0.72,
     peak: PEAK.accent,
-    range: 6.0,
+    range: 5.4,
     volumetric: true,
   });
 
+  /**
+   * MID — the third of the trio, dead behind.
+   *
+   * It exists so that shafts CROSS from three bearings rather than two: two
+   * beams overlap in a line, three from different bearings overlap in a
+   * volume, and the fusion is the whole reason the raymarch was worth
+   * building over cone meshes.
+   */
   const accentBack = emitter({
-    colour: 0xc45cff,
-    position: [0.0, 4.10, -2.60],
-    aim: [0, 0.05, 0.34],
-    angle: 0.23,
+    position: apexAt(BEARING.back),
+    aim: aimFrom(BEARING.back),
+    hue: hueAt(BEARING.back),
+    angle: 0.24,
     penumbra: 0.68,
     peak: PEAK.accent * 0.9,
-    range: 6.4,
+    range: 5.4,
     volumetric: true,
   });
 
   const accent = [accentLeft, accentRight, accentBack];
 
   /**
-   * HIGH — one tight shaft, nearly vertical, straight down the middle.
+   * BASS — the front pair, wider and softer.
    *
-   * Overhead is the one position where a hard specular highlight lands on the
-   * knob caps and the pad caps at once. With no boom to hang it from it simply
-   * hangs in the air, which is what removing the fixtures buys: a light no
-   * longer needs a plausible mounting point, because there is nothing to
-   * mount.
+   * These are the two fixtures a viewer sees THROUGH: they stand on the
+   * camera's own side of the room and point away from it, so their shafts run
+   * into the frame rather than across it and the eye follows them down onto
+   * the instrument. Wide (0.32) and soft, so a kick reads as the room filling
+   * rather than as two more pencils being drawn.
+   *
+   * The bass gets one identity across three representations — these shafts,
+   * the floor pools below, and the driver excursion in the cabinets — so a
+   * viewer can connect the pool on the floor with the shaft above it and with
+   * the cone that just moved.
    */
-  const sparkle = emitter({
-    colour: 0xf4f8ff,
-    position: [0.10, 4.35, 0.45],
-    aim: [0, 0.06, 0],
-    angle: 0.18,
-    penumbra: 0.55,
-    peak: PEAK.sparkle,
-    range: 6.2,
-    volumetric: true,
-  });
-
-  /**
-   * BASS — two more shafts, wide and low-angled, crossing over the instrument.
-   *
-   * Added when the room was closed and the ceiling went from 2.4 to 4.9. Two
-   * things changed at once and both argue for more beams: there is far more
-   * air for a shaft to cross, and there is now a surface above for them to
-   * terminate on, so a beam that used to run out into the background gradient
-   * now paints an ellipse on the dome.
-   *
-   * These are on the BASS, which nothing volumetric was on before. The
-   * midrange shafts sweep and the top-end one flicks; a kick had no
-   * representation in the air at all, so the loudest event in the music was
-   * the one the lighting ignored. Wide (0.34) and short-throw, so they read as
-   * a swell filling the room rather than as another pair of pencils.
-   *
-   * Deep indigo, matching the floor washes below them — the bass gets one
-   * colour across both its representations, which is what lets a viewer
-   * connect the pool on the floor with the shaft above it.
-   */
-  const bassBeams = [-1, 1].map((side) => emitter({
-    colour: 0x5a4cff,
-    position: [side * 2.55, 3.30, 1.95],
-    aim: [side * -0.30, 0.05, -0.10],
-    angle: 0.34,
+  const bassBeams = [BEARING.frontLeft, BEARING.frontRight].map((bearing) => emitter({
+    position: apexAt(bearing),
+    aim: aimFrom(bearing),
+    hue: hueAt(bearing),
+    angle: 0.32,
     penumbra: 0.85,
-    peak: PEAK.accent * 0.75,
-    range: 6.8,
+    peak: PEAK.accent * 0.8,
+    range: 5.6,
     volumetric: true,
   }));
 
   /**
+   * HIGH — one tight shaft straight down the middle.
+   *
+   * The only fixture off the ring, and the only one whose bearing is
+   * meaningless: it hangs over the centre and points at the floor. Overhead is
+   * the one position where a hard specular highlight lands on the knob caps
+   * and the pad caps at once.
+   *
+   * It is half a metre above the ring so its apex clears the other five, and
+   * it is nudged off the exact centre so the shaft is seen at a slight angle
+   * from every shot rather than end-on from directly above.
+   */
+  const sparkle = emitter({
+    position: [0.08, RING.height + 0.55, 0.22],
+    aim: [0, 0.06, 0],
+    /**
+     * Half a step of the ring's own spacing, which puts it exactly between
+     * the two front fixtures on the wheel.
+     *
+     * The five bearings land on 0.1, 0.3, 0.5, 0.7 and 0.9 of a turn, so the
+     * gaps are at the even tenths and 0.0 is the one furthest from anything.
+     * A downlight that matched a side light would read as that light having
+     * moved rather than as a sixth fixture.
+     */
+    hue: 0.0,
+    angle: 0.17,
+    penumbra: 0.55,
+    peak: PEAK.sparkle,
+    range: 5.0,
+    volumetric: true,
+  });
+
+  /**
    * BASS — two low washes, grazing across the floor, with no shaft.
    *
-   * At 200 mm the light skims the slab rather than falling onto it, so the
+   * ON THE SAME BEARINGS AS THE REAR PAIR, which is the arrangement a real
+   * stage has: a high side light and a floor can at the same position, doing
+   * opposite jobs. Sharing the bearing also means sharing the hue, so each
+   * rear position reads as one colour arriving at two heights.
+   *
+   * At 380 mm the light skims the slab rather than falling onto it, so the
    * lambert term varies sharply over the bezel rails and the wing surfaces and
    * the slab gains a gradient instead of a uniform brighter flat. Most of each
-   * cone lands on the ground beyond the instrument, which is the point now
-   * that the ground is polished and returns a raking highlight.
+   * cone lands on the floor beyond the instrument, which is the point now that
+   * the floor is polished and returns a raking highlight.
+   *
+   * They also moved OUT, from 1.02 to 2.25. The old pair stood at the height
+   * of a robot's chest and one of them sat 250 mm from where the mascot
+   * parks — a lamp inside the furniture, close enough that its inverse square
+   * put roughly twenty times more light on him than on the instrument it was
+   * aimed at. It missed him only because he happened to fall outside the cone,
+   * which is not a margin anything should depend on.
    *
    * `volumetric: false`, and that is physics rather than a budget cut. These
    * are 54-degree floods: they spread the same energy over roughly nine times
@@ -918,10 +1161,10 @@ export function initLighting({ scene }) {
    * across the lower frame — not a shaft, just a fog that makes everything
    * else muddier.
    */
-  const wash = [-1, 1].map((side) => emitter({
-    colour: 0x5a4cff,
-    position: [side * 1.02, 0.20, 0.44],
-    aim: [side * -0.16, 0.03, -0.14],
+  const wash = [BEARING.rearLeft, BEARING.rearRight].map((bearing) => emitter({
+    position: apexAt(bearing, 2.25, 0.38),
+    aim: aimFrom(bearing, 0.55, 0.05),
+    hue: hueAt(bearing),
     angle: 0.95,
     penumbra: 0.85,
     peak: PEAK.wash,
@@ -1015,6 +1258,18 @@ export function initLighting({ scene }) {
 
   /** Smoothed 0..1 energy per band. Read by anything that wants a meter. */
   const level = { bass: 0, mid: 0, high: 0 };
+
+  /**
+   * THE ONE CLOCK EVERY FIXTURE'S COLOUR IS READ FROM.
+   *
+   * Kept as state rather than derived from `elapsed`, because the rate is not
+   * constant — the programme level pushes it — so there is no closed form to
+   * evaluate. One accumulator drives eight lamps: each adds its own fixed
+   * offset, so the gradient rotates rigidly around the room and no two
+   * fixtures can drift into the same colour however long the page is left
+   * running.
+   */
+  let hueClock = 0.12;
 
   /** Seconds since the rig was built, for the yoke sweep. */
   let elapsed = 0;
@@ -1139,24 +1394,29 @@ export function initLighting({ scene }) {
         .addScaledVector(beam.direction, 2.0);
 
       /**
-       * NO FLOOR. The shaft is visible only when the lamp is actually doing
-       * something.
+       * A SMALL FLOOR, AND A GENTLER CURVE THAN SQUARING.
        *
-       * It used to sit at 0.10 even at rest, on the argument that the emitter
-       * has an idle level so there is genuinely light in the air. That is true
-       * and it was the wrong call: at rest the whole rig showed four permanent
-       * cones, which is the single thing that most gives away a fake
-       * volumetric, because real shafts are transient — you notice them when
-       * they move or when they come on.
+       * This line was `level * level` with no floor at all, and between the
+       * two of them they were most of the reason the shafts were barely
+       * visible. Squaring a number that is already a fraction is brutal: a
+       * band sitting at a perfectly audible 0.3 of full scale produced 0.09 of
+       * beam, and the overhead shaft — whose own drive is `level.high`
+       * squared before it ever gets here — was being raised to the FOURTH
+       * power. A hi-hat at half level came out at six per cent.
        *
-       * Squared, so the bottom of the range collapses. A linear map spends its
-       * first third on levels that are audibly nothing, and a shaft that
-       * brightens on room noise reads as unrelated to the music. Squaring puts
-       * the visible onset at roughly a third of full level, which is about
-       * where a hit becomes a hit.
+       * The exponent is now 0.8, which is a slight expansion of the low end
+       * rather than a collapse of it, and there is an idle floor again. The
+       * floor was removed on the argument that permanent cones give away a
+       * fake volumetric — true on a closed stage, where four cones hung in a
+       * lit room with nothing else to explain them. In an open room with a
+       * visible haze the opposite is true: a rig whose shafts appear only on
+       * transients reads as a flicker, and the gradient rotating through the
+       * hues has nothing to rotate through while the transport is stopped.
+       *
+       * 0.10 is a shaft you can see is there and cannot mistake for a lit one.
        */
       const level01 = source.level ?? 0;
-      beam.intensity = level01 * level01;
+      beam.intensity = 0.10 + 0.90 * Math.pow(level01, 0.8);
     }
   }
 
@@ -1292,47 +1552,75 @@ export function initLighting({ scene }) {
       }
     }
 
+    // --- the gradient -----------------------------------------------------
+    //
+    // ONE CLOCK, EIGHT FIXTURES, AND NOTHING AUTHORED PER LAMP.
+    //
+    // The rig used to hold three fixed identities — cool on the left, warm on
+    // the right, indigo on the bass — with a short hue arc swept by the
+    // midrange, and only the overhead shaft actually travelling. That is a
+    // defensible scheme and it is not what this asks for: the whole rig now
+    // moves through the wheel together, keeping the 72-degree spacing that
+    // `hueAt` derived from each fixture's bearing.
+    //
+    // The consequence worth stating is that the warm/cool split is no longer
+    // permanent — it rotates, so at any instant some part of the room is warm
+    // and some part is cool, but WHICH part changes. The mascot is amber and
+    // the floor is near-black, so both survive whatever colour arrives; what
+    // would not survive is two fixtures converging on one hue, and the fixed
+    // offsets make that impossible by construction.
+    const programme = Math.min(1, level.bass * 0.6 + level.mid * 0.5 + level.high * 0.4);
+    hueClock = (hueClock + dt * (HUE_RATE + programme * HUE_PUSH)) % 1;
+
+    for (const fixture of fixtures) {
+      fixture.light.color.setHSL(
+        (hueClock + fixture.hue) % 1,
+        BEAM_SATURATION,
+        BEAM_LIGHTNESS
+      );
+    }
+
     // --- bass -> the floor washes and the two wide shafts ------------------
     setFixture(wash[0], IDLE + level.bass * PEAK.wash);
     setFixture(wash[1], IDLE + level.bass * PEAK.wash);
 
     // The shafts run on the same envelope as the pools, so the two halves of
     // the bass response cannot disagree about how hard the kick landed.
-    const bassLevel = IDLE + level.bass * PEAK.accent * 0.75;
+    const bassLevel = IDLE + level.bass * PEAK.accent * 0.8;
     setFixture(bassBeams[0], bassLevel);
     setFixture(bassBeams[1], bassLevel);
 
-    // --- mid -> accent colour, intensity, and the yokes -------------------
+    // --- mid -> the three accent shafts -----------------------------------
     //
-    // The hue of each head sweeps a short arc as the midrange fills: the left
-    // from cyan towards blue, the right from orange towards red. Both stay
-    // inside their own half of the wheel, so the pair never converges on one
-    // colour and the warm/cool split that separates the character from the
-    // backdrop survives at every level.
-    //
-    // Note the colour is written to the LIGHT and then copied outward to its
-    // lens by setFixture. There is one authoritative colour per fixture and
-    // the things that read it, which is the rule the whole project runs on:
-    // derive, never duplicate.
+    // Intensity only. The colour was written above, from the fixture's place
+    // on the wheel rather than from the band — there is one authoritative
+    // colour per fixture and one place that sets it, which is the rule the
+    // whole project runs on: derive, never duplicate.
     const accentLevel = IDLE + level.mid * PEAK.accent;
-
-    accentLeft.light.color.setHSL(0.53 + level.mid * 0.06, 0.85, 0.58);
     setFixture(accentLeft, accentLevel);
-
-    accentRight.light.color.setHSL(0.065 - level.mid * 0.045, 0.85, 0.58);
     setFixture(accentRight, accentLevel);
-
-    updateBeams(elapsed);
+    setFixture(accentBack, IDLE + level.mid * PEAK.accent * 0.9);
 
     // --- high -> sparkle --------------------------------------------------
     //
-    // Squared, unlike the other two. The high band's mean is compressed by the
-    // averaging described above, so it rarely reaches the top of its range;
-    // squaring pushes the quiet majority down and leaves the peaks where they
-    // are, which turns a light that is always slightly on into one that
-    // flicks. This is a shaping choice on a light, not a correction to the
-    // measurement — the measurement is in `level.high` and stays honest.
-    setFixture(sparkle, IDLE + level.high * level.high * PEAK.sparkle);
+    // The one place a band is still shaped before it reaches a light, and it
+    // is deliberately gentler than the square it used to be. The high band's
+    // mean is compressed by averaging four hundred bins, so it rarely reaches
+    // the top of its range; squaring pushed the quiet majority to nearly
+    // nothing, and then `updateBeams` squared it AGAIN — a hi-hat at half
+    // level reached the shaft as six per cent. A 1.4 power keeps the flick
+    // without throwing the range away.
+    setFixture(sparkle, IDLE + Math.pow(level.high, 1.4) * PEAK.sparkle);
+
+    // --- the shafts, once every fixture holds this frame's level ----------
+    //
+    // AFTER all six `setFixture` calls, not in the middle of them. It used to
+    // run between the accents and the sparkle, which meant the overhead
+    // shaft's density was computed from the PREVIOUS frame's level while its
+    // own lamp already held this one — a one-frame disagreement between a
+    // beam and the light casting it, invisible at rest and exactly the sort
+    // of thing that shows on the fastest band in the kit.
+    updateBeams(elapsed);
 
     // --- overall lift -----------------------------------------------------
     ambient.intensity = 0.05 + (level.bass + level.mid + level.high) * 0.06;

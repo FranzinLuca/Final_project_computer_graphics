@@ -247,20 +247,20 @@
     align-items: center;
     gap: 8px;
     padding: 9px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(47, 58, 99, 0.10);
   }
   .seq-spacer { flex: 1; }
 
   .seq-btn {
     font: inherit;
     color: var(--ink);
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(47, 58, 99, 0.06);
+    border: 1px solid rgba(47, 58, 99, 0.12);
     border-radius: 8px;
     padding: 6px 12px;
     cursor: pointer;
   }
-  .seq-btn:hover { background: rgba(255, 255, 255, 0.13); }
+  .seq-btn:hover { background: rgba(47, 58, 99, 0.12); }
   .seq-btn:disabled { opacity: 0.35; cursor: default; }
   .seq-rec.is-active {
     background: rgba(255, 95, 82, 0.22);
@@ -278,8 +278,8 @@
     opacity: 0.75;
   }
   @media (max-width: 900px) { .seq-hint { display: none; } }
-  .seq-state.is-play { color: #6ff0d8; }
-  .seq-state.is-rec { color: #ff8078; }
+  .seq-state.is-play { color: #12a89a; }
+  .seq-state.is-rec { color: #e0475c; }
   /*
     The count-in blinks and nothing else does. It is the only transient state
     in the machine — it lasts one bar and then it is gone — so it is the only
@@ -292,8 +292,8 @@
   .seq-field select {
     font: inherit;
     color: var(--ink);
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(47, 58, 99, 0.06);
+    border: 1px solid rgba(47, 58, 99, 0.12);
     border-radius: 7px;
     padding: 5px 7px;
   }
@@ -323,26 +323,26 @@
   /* Filled-layer indicator: the answer to "which layer has anything in it". */
   .seq-dot {
     width: 7px; height: 7px; border-radius: 50%;
-    background: rgba(255, 255, 255, 0.14);
+    background: rgba(47, 58, 99, 0.16);
     flex: none;
   }
-  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
+  .seq-dot.is-filled { background: #12a89a; box-shadow: 0 0 6px rgba(18, 168, 154, 0.5); }
 
   .seq-mini {
     font: inherit;
     font-size: 10px;
     line-height: 1;
     color: var(--dim);
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(47, 58, 99, 0.05);
+    border: 1px solid rgba(47, 58, 99, 0.12);
     border-radius: 5px;
     padding: 4px 5px;
     cursor: pointer;
   }
-  .seq-mini:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); }
+  .seq-mini:hover { color: var(--ink); background: rgba(47, 58, 99, 0.10); }
   .seq-arm.is-armed {
     color: #fff;
-    background: #e2483c;
+    background: #ff8078;
     border-color: #ff7b70;
   }
   .seq-head.is-solo .seq-mini:nth-of-type(3) { color: #ffd08a; }
@@ -368,15 +368,15 @@
     font: inherit;
     font-size: 9px;
     color: rgba(0, 0, 0, 0.65);
-    background: rgba(255, 255, 255, 0.055);
+    background: rgba(47, 58, 99, 0.07);
     border: 1px solid transparent;
     border-radius: 3px;
     cursor: pointer;
   }
-  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
-  .seq-cell.is-bar { background: rgba(255, 255, 255, 0.12); }
-  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.4); }
-  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.75); }
+  .seq-cell.is-beat { background: rgba(47, 58, 99, 0.11); }
+  .seq-cell.is-bar { background: rgba(47, 58, 99, 0.10); }
+  .seq-cell:hover { border-color: rgba(47, 58, 99, 0.45); }
+  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(47, 58, 99, 0.70); }
 
   .seq-ruler { margin-bottom: 6px; height: 12px; }
   .seq-tick {
@@ -387,8 +387,8 @@
     color: var(--dim);
     border-radius: 2px;
   }
-  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
-  .seq-tick.is-bar { background: rgba(255, 255, 255, 0.12); color: var(--ink); }
+  .seq-tick.is-beat { background: rgba(47, 58, 99, 0.07); }
+  .seq-tick.is-bar { background: rgba(47, 58, 99, 0.10); color: var(--ink); }
 
   @media (max-width: 720px) {
     .seq-head { width: 108px; }
@@ -413,10 +413,10 @@
     align-items: center;
     gap: 10px;
     padding: 13px 22px;
-    background: rgba(14, 17, 30, 0.90);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(47, 58, 99, 0.14);
     border-radius: 999px;
-    box-shadow: 0 14px 40px -12px rgba(0, 0, 0, 0.85);
+    box-shadow: 0 14px 36px -12px rgba(47, 58, 99, 0.30);
     color: var(--ink);
     font-size: 14.5px;
     font-weight: 550;
@@ -438,8 +438,8 @@
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.13);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(47, 58, 99, 0.12);
+    border: 1px solid rgba(47, 58, 99, 0.16);
   }
 
   /*
@@ -472,7 +472,7 @@
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(47, 58, 99, 0.55);
     pointer-events: none;
     white-space: pre;
     z-index: 5;
@@ -482,6 +482,120 @@
     #overlay, #start, #prompt { transition: none; }
     #prompt i { animation: none; }
   }
+
+  /* ---------------------------------------------------------------------
+     THEME LOCK
+
+     Everything below restates the panel colours explicitly rather than
+     relying on the rules above, and it is the last thing in the stylesheet so
+     it wins on cascade order regardless of what precedes it.
+
+     The reason it exists: the palette has now been swapped three times, and
+     each swap was done by editing colour literals scattered through half a
+     dozen rules. That works until one of them is missed — which is what left
+     the sequencer panel and the control panel white on a near-black stage,
+     the single most visible thing in the frame and the only part of the
+     interface that is not generated from palette.js.
+
+     Two panels, two problems, and only one of them was mine to miss:
+
+       #seq          styled here, and some of its rules kept a light value
+       .lil-gui      never styled at all, so it used its own default theme
+
+     lil-gui exposes its whole appearance as CSS custom properties, which is
+     the supported way to reskin it — reaching into its internal class names
+     would break on any version bump, and the library is vendored, so a bump
+     is a file copy somebody makes without thinking about CSS.
+     --------------------------------------------------------------------- */
+
+  .lil-gui {
+    --background-color: #171a28;
+    --text-color: #dfe4f2;
+    --title-background-color: #10131f;
+    --title-text-color: #f2f4fb;
+    --widget-color: #2a3043;
+    --hover-color: #363d54;
+    --focus-color: #414a67;
+    --number-color: #ffb257;
+    --string-color: #6ff0d8;
+    --font-size: 11px;
+    --input-font-size: 11px;
+    --padding: 5px;
+    --spacing: 5px;
+    --widget-height: 20px;
+  }
+
+  #seq {
+    background: rgba(16, 19, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: #e8ebf5;
+  }
+  .seq-bar { border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+
+  .seq-btn {
+    color: #e8ebf5;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+  }
+  .seq-btn:hover { background: rgba(255, 255, 255, 0.14); }
+  .seq-rec.is-active {
+    background: rgba(255, 95, 82, 0.24);
+    border-color: rgba(255, 95, 82, 0.62);
+    color: #ffb4ad;
+  }
+
+  .seq-state { color: #9aa3ba; }
+  .seq-state.is-play { color: #6ff0d8; }
+  .seq-state.is-rec { color: #ff8078; }
+  .seq-state.is-countin { color: #ffb257; }
+  .seq-hint { color: #7f889f; }
+
+  .seq-field { color: #9aa3ba; }
+  .seq-field select {
+    color: #e8ebf5;
+    background: #232a3c;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+  }
+  /* The option list is drawn by the OS and does not inherit, so it is set
+     explicitly or the dropdown opens white on every platform. */
+  .seq-field select option { background: #232a3c; color: #e8ebf5; }
+
+  .seq-head { color: #9aa3ba; }
+  .seq-dot { background: rgba(255, 255, 255, 0.16); }
+  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
+
+  .seq-mini {
+    color: #9aa3ba;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+  .seq-mini:hover { color: #e8ebf5; background: rgba(255, 255, 255, 0.13); }
+  .seq-arm.is-armed { color: #fff; background: #e2483c; border-color: #ff7b70; }
+
+  .seq-cell {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid transparent;
+    color: rgba(0, 0, 0, 0.7);
+  }
+  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
+  .seq-cell.is-bar  { background: rgba(255, 255, 255, 0.13); }
+  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.42); }
+  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.8); }
+
+  .seq-tick { color: #7f889f; }
+  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
+  .seq-tick.is-bar  { background: rgba(255, 255, 255, 0.13); color: #e8ebf5; }
+
+  #hover { background: rgba(16, 19, 32, 0.94); color: #e8ebf5; }
+  #hover span { color: #9aa3ba; }
+
+  #prompt { background: rgba(16, 19, 32, 0.92); color: #e8ebf5; }
+  #prompt kbd {
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+  }
+
+  #status { color: rgba(255, 255, 255, 0.5); }
 </style>
 </head>
 <body>

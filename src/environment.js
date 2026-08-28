@@ -1,74 +1,38 @@
 /**
- * environment.js — the room the instrument stands in.
+ * environment.js — the ground the instrument stands on. There is no room.
  *
- * Everything in this file was previously inlined in main.js: the backdrop
- * gradient, the image-based lighting, the fog and a flat circle standing in
- * for a floor. main.js is supposed to be wiring and a render loop, and roughly
- * forty lines of it had quietly become set dressing. This module takes them.
+ * PHASE 16: THE ROOM WAS DELETED
  *
- * It imports textures.js and palette.js — leaf modules — and nothing else. It
- * does not know the rig exists.
+ * This file has now built three environments and thrown two away, and the
+ * sequence is the argument rather than an embarrassment.
  *
+ *   OPEN GROUND     a flat disc dissolving into fog. Rejected because the
+ *                   edge was visible when the camera pulled back.
+ *   CYCLORAMA       a lathed sweep and wall, then a closed dome. Rejected
+ *                   because it is a ROOM, and a room is a box the subject sits
+ *                   inside — which is exactly the reading a cartoon still must
+ *                   not have.
+ *   OPEN GROUND     again, and this time correctly, because the reason it
+ *                   failed the first time was a bug in the fog and not a fault
+ *                   in the idea.
  *
- * WHY A CYCLORAMA AND NOT WALLS
+ * The first attempt put the fog range at 5–12 on a disc of radius 2.4. The
+ * disc therefore ended two and a half units before the fog had finished with
+ * it, so the edge arrived at full contrast and read as the rim of a plate.
+ * Fog does not hide an edge; fog hides an edge that is FURTHER AWAY THAN THE
+ * FOG. The floor is now radius 14 against a fog that saturates at 9.5, so the
+ * ground reaches the backdrop colour four and a half units before it runs out
+ * and there is no edge to see from anywhere the camera can go.
  *
- * The phase 6 plan asked for "a booth: floor, two or three walls". Three flat
- * walls have four problems in this scene, and they compound:
+ * That single relationship — `floorR > fogFar` — is the whole of what makes an
+ * infinite ground work, and it is checked below rather than assumed.
  *
- *   - They have corners, and a corner is a hard line that competes with the
- *     instrument for attention in a frame this simple.
- *   - They have edges, and the camera orbits freely, so any edge will be swung
- *     past and seen to end in mid-air.
- *   - A back wall only exists behind. Orbit ninety degrees and the scene is
- *     open again.
- *   - They contradict the fog: main.js set the fog to the backdrop colour
- *     specifically so the ground would dissolve rather than stop at a visible
- *     rim. A wall reintroduces the rim.
- *
- * A cyclorama solves all four with one surface. It is what a real photographic
- * studio uses and it is the physical thing the phrase "infinite sweep" refers
- * to: the wall curves into the floor on a fillet large enough that no shadow
- * line forms in the join, so the two surfaces read as one continuous ground
- * with no horizon. Built as a full ring rather than a back wall, it also
- * survives being orbited, which is the requirement a three-sided booth cannot
- * meet.
- *
- *
- * PHASE 15: THE ROOM IS NOW CLOSED
- *
- * The cyc solved the horizon and left a hole in the sky. It was an open
- * cylinder: a floor sweep, a wall, and then nothing above `cycTop`, so tilting
- * the camera up put the rim of the wall against the background gradient and
- * showed the viewer that they were standing inside a bucket. Every problem the
- * cyc was built to fix — no edges, no corners, nothing that ends in mid-air —
- * it reintroduced at the top.
- *
- * The fix is to close it. The profile now continues past the wall into a
- * DOME, so the lathe describes a single sealed volume from the floor lip to
- * the apex and there is no direction the camera can point that leaves the
- * room. `scene.background` is consequently never seen, which is worth stating
- * plainly: it is kept only because a background is cheap insurance against a
- * one-frame gap during a resize.
- *
- * The room also grew, from a 3.3-unit wall to 4.2 and from 2.4 of height to
- * 4.9. That is not padding. The shafts are the thing this scene is now built
- * around, and a shaft is only as impressive as the distance it crosses — in a
- * low room the emitters sit just above the instrument and the beams are short
- * diagonal streaks. Raising the ceiling lets them travel, and travel is the
- * whole of what makes stage lighting read as stage lighting.
- *
- * TWO TANGENCY CONDITIONS, not one. The floor fillet already had to leave the
- * ground horizontally and meet the wall vertically. The dome has the mirror
- * problem at the other end: it must leave the wall vertically and arrive at
- * the apex horizontally, or there is a visible crease ringing the ceiling
- * exactly where the eye is drawn when it looks up. A quarter ellipse of
- * horizontal semi-axis `cycWall` and vertical semi-axis `domeApex - cycTop`
- * satisfies both exactly, for the same reason the floor's quarter circle does:
- * the parameterisation is tangent to the axes at its ends by construction, not
- * by fitting.
- *
- * The wall takes the backdrop's own colour at the bottom and darkens towards
- * the apex, so the volume reads as depth rather than as a lid.
+ * WHAT THIS BUYS BACK. Deleting the dome removed roughly ninety per cent of
+ * the environment's geometry, its lathe, its vertex-colour pass and its two
+ * tangency derivations, and it removed the constraint that the camera stay
+ * inside a shell. The ground plus fog is four meshes' worth of idea in one,
+ * and it is the correct one for a subject that is supposed to read as floating
+ * in a bright nowhere.
  */
 
 import * as THREE from 'three';
@@ -84,31 +48,81 @@ import {
 
 // ---------------------------------------------------------------------------
 // Dimensions
-//
-// One place, as everywhere else. The relationships that matter:
-//
-//   floorR  <  cycStart      the floor's edge is hidden under the cyc's lip
-//   cycWall  >  camera max   the camera must never get outside the room
-//
-// The second is a real constraint on main.js and not a suggestion: put
-// controls.maxDistance above cycWall and orbiting far enough out puts the
-// camera behind the wall, which — because the cyc is drawn from the inside —
-// means it vanishes and the scene turns into a floating slab over nothing.
 // ---------------------------------------------------------------------------
 
+/**
+ * One disc, and the distances the fog is tuned against.
+ *
+ * `floorR` is generous — 7 units against a 1.5-unit instrument — because the
+ * floor now has to reach past the point where the fog has finished hiding it.
+ * If the disc ended inside the fog's range its rim would be faintly visible as
+ * a slightly-different-coloured arc, which is the exact artefact the cyclorama
+ * was built to avoid and which this approach avoids for free ONLY if the
+ * geometry outlives the visibility.
+ */
 export const ROOM = {
-  floorR: 3.20,     // flat disc, planar UVs
-  cycLip: 3.10,     // where the cyc's flat lip begins, under the floor edge
-  cycStart: 3.30,   // where the fillet leaves the ground
-  cycWall: 4.20,    // radius of the vertical wall
-  fillet: 0.90,     // radius of the curve joining floor to wall
-  cycTop: 3.30,     // height the wall stops and the dome begins
-  domeApex: 4.90,   // height of the closed apex
-  lipDrop: 0.003,   // how far the lip sits below the floor, to avoid z-fighting
+  /**
+   * The disc, and the constraint that makes the whole approach work:
+   *
+   *     floorR  >  fogFar  +  MAX_ORBIT
+   *
+   * The camera may sit anywhere inside a sphere of MAX_ORBIT, so the nearest
+   * the floor's rim can ever be is `floorR - MAX_ORBIT`. For the rim to be
+   * invisible from every legal position, that distance has to exceed the range
+   * at which fog has fully taken over — and it now does, with 1.5 units of
+   * margin, where the previous numbers missed it by one and were excused on
+   * the grounds that the camera only looks inward. That excuse was worth
+   * retiring: a viewer who orbits wide and pans is not doing anything the
+   * controls forbid, and an argument that depends on where someone chooses to
+   * look is not a constraint.
+   */
+  /**
+   * Retuned as one set, because the three numbers are one decision.
+   *
+   * The old 12 / 3.2 / 8.0 was inherited from a room with walls, and it broke
+   * the wide shots the moment the walls came out. Fog started at 3.2 units,
+   * which is INSIDE the scene: the Stage and Beams shots put the camera 3.6
+   * from the centre, so the far speaker stack sat at 4.5 and was already a
+   * quarter washed towards the background before the viewer had seen it. The
+   * subject was being fogged by a term that exists solely to hide the edge of
+   * the floor.
+   *
+   * The constraint is still `floorR > fogFar + MAX_ORBIT`, and it is now
+   * satisfied with room to spare rather than missed by a unit: 16 > 9.5 + 5.
+   * The rim is therefore fully dissolved from every legal camera position and
+   * in every direction, not only when looking inward — which is what lets the
+   * fog start far enough out to leave the whole set unfogged.
+   *
+   * A bigger disc costs one geometry and no fill: the far half of it is
+   * hidden behind the fog it was enlarged to reach, which is the entire point.
+   * Tile density is derived from the radius below, so the concrete does not
+   * stretch when the floor grows.
+   */
+  floorR: 16.00,
+  fogNear: 4.50,
+  fogFar: 9.50,
+
+  /**
+   * The usable stage: how far from the centre anything may stand.
+   *
+   * Nothing enforces this geometrically any more — with the walls gone an
+   * object at radius 9 would simply be standing in the fog rather than inside
+   * the scenery. It is kept because intro.js clamps the mascot's entry against
+   * it, and because "the set is three units across" is a composition decision
+   * that should live with the set rather than in the file that animates it.
+   */
+  stageR: 3.00,
 };
 
-/** The furthest the camera may orbit and stay inside the room. */
-export const MAX_ORBIT = ROOM.cycWall - 0.55;
+/**
+ * The furthest the camera may orbit.
+ *
+ * No longer a wall clearance — there is no wall. It is now simply how far back
+ * a viewer may usefully get before the instrument is a dot, and it is checked
+ * against the floor rather than against a room: past about 5 units the camera
+ * is looking at fog with a small object in it.
+ */
+export const MAX_ORBIT = 5.00;
 
 // ---------------------------------------------------------------------------
 // Contact shadows
@@ -184,17 +198,31 @@ export function buildEnvironment({ scene, renderer }) {
   // -----------------------------------------------------------------------
   // Backdrop
   //
-  // A gradient rather than a flat colour. A flat background gives the
-  // silhouette exactly one contrast value to sit against, so whichever value
-  // is chosen, part of the object disappears into it. A vertical ramp
-  // guarantees the top of the slab reads against a darker band and its shadow
-  // side against a lighter one.
+  // Flat, where it used to be a vertical ramp. The gradient existed so the
+  // silhouette had two values to sit against — with a single background value,
+  // whichever one is chosen, some part of a monochrome object disappears into
+  // it. That argument dies the moment the objects carry saturated colour of
+  // their own: they now separate from the ground by HUE, and hue separation
+  // does not care what the background's value is.
   //
-  // With the cyc in place this is only visible above the wall, but it is still
-  // what the wall's colour is chosen to continue.
   // -----------------------------------------------------------------------
 
-  scene.background = verticalGradientTexture(PALETTE.skyTop, PALETTE.skyBottom);
+  /**
+   * A flat colour, not a gradient, and identical to the fog.
+   *
+   * The two being EQUAL is the whole trick and the only thing this file
+   * depends on. Fog blends a surface towards its own colour with distance, so
+   * a floor fogged to exactly the background value becomes indistinguishable
+   * from the background before it runs out — no horizon, no rim, no edge to
+   * find by orbiting. Set them a few percent apart and a faint arc appears
+   * exactly where the disc ends, which is the artefact this replaces a whole
+   * dome to avoid.
+   *
+   * `THREE.Color` rather than a texture: there is nothing left to vary across
+   * it, and a one-colour texture is a texture upload and a sampler for a value
+   * the renderer can clear to for free.
+   */
+  scene.background = new THREE.Color(PALETTE.skyTop);
 
   // -----------------------------------------------------------------------
   // Image-based lighting
@@ -231,6 +259,31 @@ export function buildEnvironment({ scene, renderer }) {
    * the two are not interchangeable, because reflection cares about the
    * distribution and diffuse only cares about the mean.
    */
+  /**
+   * 0.55, up from the dark stage's 0.11.
+   *
+   * The environment is doing a different job in each direction. On a dark
+   * stage it was dimmed almost to nothing because it was flooding the scene
+   * and flattening it, and kept only so metal had something to reflect. Here
+   * ambient fill IS the look: a pastel scene wants light arriving from
+   * everywhere so that no surface has a dark side, and the image-based term is
+   * the cheapest and softest way to get that — it costs one prefiltered
+   * texture lookup and casts nothing.
+   */
+  /**
+   * 0.11 again, with the map left bright.
+   *
+   * Two jobs are done by one number and they want opposite things. The
+   * environment is both an ambient diffuse term — the thing that floods a
+   * scene and flattens it — and the only thing a metallic surface can reflect,
+   * without which the hinge barrels and the bezel render black. Dimming the
+   * INTENSITY rather than dulling the MAP keeps the softbox layout intact in
+   * the reflection while contributing almost nothing to the ambient floor.
+   *
+   * A dark environment texture at 0.55 would give the same average and a dead
+   * reflection: the two are not interchangeable, because reflection cares
+   * about the distribution and diffuse only about the mean.
+   */
   scene.environmentIntensity = 0.11;
   equirect.dispose();
   pmrem.dispose();
@@ -262,7 +315,7 @@ export function buildEnvironment({ scene, renderer }) {
    * The instrument sits inside 1.5 units of the target, so nothing on it is
    * ever fogged.
    */
-  scene.fog = new THREE.Fog(PALETTE.skyBottom, 4.0, 13.0);
+  scene.fog = new THREE.Fog(PALETTE.skyTop, ROOM.fogNear, ROOM.fogFar);
 
   // -----------------------------------------------------------------------
   // Floor — polished concrete
@@ -284,49 +337,71 @@ export function buildEnvironment({ scene, renderer }) {
    * height on screen; without anisotropic filtering the hardware picks a mip
    * level for the worst axis and the distance blurs to mush.
    */
-  const concrete = configureMaps(concreteMaps(512), 10, 10, anisotropy);
+  /**
+   * Repeats scale with the disc so the texel density does not change when the
+   * floor is resized. Ten repeats across the old 4.8-unit disc put a tile
+   * every 480 mm; the disc is now 14 units across, so the count goes up with
+   * it rather than the tiles being stretched to three times their size.
+   */
+  const floorTiles = Math.round(ROOM.floorR * 2 / 0.48);
+  const concrete = configureMaps(concreteMaps(512), floorTiles, floorTiles, anisotropy);
 
   const floorMaterial = new THREE.MeshStandardMaterial({
     ...concrete,
     color: PALETTE.ground,
-
-    /**
-     * Still a dielectric. A polished black stage floor is lacquer over a dark
-     * substrate, not metal, and the difference is not pedantry: a metal
-     * reflects its own colour and has no diffuse response at all, so
-     * `metalness: 1` on a near-black albedo renders a black mirror that shows
-     * only the environment. A dielectric keeps a diffuse term for the light
-     * pools to land in AND gains a Fresnel-weighted specular that strengthens
-     * at grazing angles — which is exactly the effect wanted, because the
-     * camera never looks straight down at this floor.
-     */
     metalness: 0.0,
 
     /**
-     * `roughness` MULTIPLIES `roughnessMap`, it does not replace it — and here
-     * that is used deliberately rather than avoided. The map was authored over
-     * 0.34–0.68, the semi-gloss band of sealed concrete. A factor of 0.42
-     * carries the whole band down to 0.14–0.29 without flattening it, so the
-     * floor becomes lacquered while keeping the mottle that breaks the
-     * specular streak into something that reads as a real surface. Replacing
-     * the band with a single number would give a clean airbrushed streak, and
-     * a clean streak is the giveaway of a floor that is a shader rather than a
-     * floor.
+     * MATTE, reversing the semi-gloss stage floor exactly.
      *
-     * This is the surface the phase leans on hardest. Every fixture in the
-     * room now leaves a long raking highlight across it, and that highlight is
-     * most of what makes the lighting read as stage lighting.
+     * `roughness` multiplies `roughnessMap` rather than replacing it, and that
+     * is used here in the opposite direction from last time: the map was
+     * authored over 0.34–0.68, a factor of 0.42 took it to a lacquered
+     * 0.14–0.29 for the dark stage, and 1.0 now lets the whole authored band
+     * through.
+     *
+     * A gloss floor was doing a specific job — every fixture left a long
+     * raking highlight across it, and those highlights were most of what made
+     * the lighting read as stage lighting. On a pale ground there is nothing
+     * to reflect: the environment is near-white, so the reflection is
+     * near-white, so a polished floor is just a slightly brighter pale floor
+     * with the mottle washed out of it. The specular buys nothing and costs
+     * the only surface detail the ground has.
+     */
+    /**
+     * Semi-gloss again, and this is the change that most repays the room going
+     * dark. `roughness` MULTIPLIES `roughnessMap`: the map was authored over
+     * 0.34–0.68, and 0.42 carries the whole band down to 0.14–0.29 without
+     * flattening it, so the floor becomes lacquered while keeping the mottle
+     * that breaks the specular into something that reads as a real surface.
+     *
+     * On a pale ground this bought nothing — the environment was near-white,
+     * so the reflection was near-white, so a polished floor was a slightly
+     * brighter pale floor. On a dark one every fixture leaves a long raking
+     * highlight across it, and those highlights are most of what makes the
+     * lighting read as stage lighting.
      */
     roughness: 0.42,
 
+    /**
+     * Almost no relief. The concrete normal map is still bound — it is one of
+     * the map kinds the project has to demonstrate — but at 0.15 it does
+     * little more than break the flatness under grazing light.
+     *
+     * That is deliberate rather than a compromise. Cartoon surfacing is about
+     * flat fields of colour separated by value, and a floor with visible
+     * bumps competes with the objects for the eye's attention. Keeping the map
+     * bound at low strength is the honest version: the texture is present and
+     * doing a small amount of work, rather than being removed and claimed.
+     */
     // Halved with the roughness. A polished surface shows less of its own
     // relief, not more — the specular lobe that would reveal the normal detail
     // is now tight enough to reflect the room instead of the bumps.
-    normalScale: new THREE.Vector2(0.3, 0.3),
+    normalScale: new THREE.Vector2(0.30, 0.30),
   });
 
   const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(ROOM.floorR, 96),
+    new THREE.CircleGeometry(ROOM.floorR, 128),
     floorMaterial
   );
   floor.rotation.x = -Math.PI / 2;
@@ -334,191 +409,14 @@ export function buildEnvironment({ scene, renderer }) {
   floor.name = 'floor';
   scene.add(floor);
 
-  // -----------------------------------------------------------------------
-  // Cyclorama
-  // -----------------------------------------------------------------------
-
-  /**
-   * The profile, in (radius, height), lathed around Y.
-   *
-   *   flat lip      cycLip -> cycStart, at -lipDrop
-   *   fillet        a quarter arc of radius `fillet`, centred at (cycWall, 0)
-   *   wall          straight up to cycTop
-   *
-   * The arc is generated rather than approximated by hand, because the two
-   * tangency conditions are the entire point of a cyc: it has to leave the
-   * floor horizontally and meet the wall vertically, or a shadow line forms in
-   * the join and the illusion of a continuous ground is gone. A quarter circle
-   * centred at (cycWall, 0) satisfies both exactly — at 180 degrees it is
-   * horizontal at radius cycStart, at 90 degrees it is vertical at cycWall —
-   * which is why the fillet radius and the difference between the two radii
-   * are the same number and not two numbers that happen to be close.
-   */
-  const profile = [
-    new THREE.Vector2(ROOM.cycLip, -ROOM.lipDrop),
-    new THREE.Vector2(ROOM.cycStart, -ROOM.lipDrop),
-  ];
-
-  const ARC_SEGMENTS = 22;
-
-  // --- floor fillet: a quarter circle centred at (cycWall, fillet) ---------
-  //
-  // At 180 degrees it is horizontal at radius cycStart; at 90 degrees it is
-  // vertical at cycWall. Which is why the fillet radius and the difference
-  // between the two radii are the same number and not two numbers that happen
-  // to be close.
-  for (let i = 1; i <= ARC_SEGMENTS; i++) {
-    const t = Math.PI - (i / ARC_SEGMENTS) * (Math.PI / 2);
-    profile.push(new THREE.Vector2(
-      ROOM.cycWall + ROOM.fillet * Math.cos(t),
-      ROOM.fillet * Math.sin(t)
-    ));
-  }
-
-  // --- the wall -----------------------------------------------------------
-  profile.push(new THREE.Vector2(ROOM.cycWall, ROOM.cycTop));
-
-  // --- dome: a quarter ellipse from the wall top to the apex ---------------
-  //
-  // (cycWall·cos t, cycTop + rise·sin t) for t from 0 to pi/2. At t = 0 it
-  // sits on the wall with a vertical tangent; at t = pi/2 it reaches the axis
-  // with a horizontal one. Both tangency conditions hold by construction, so
-  // there is no crease where the wall becomes the ceiling and none at the
-  // apex — which matters because the apex is dead centre of frame the moment
-  // anybody looks up.
-  //
-  // An ellipse rather than a hemisphere because the two semi-axes are
-  // different: 4.2 across and 1.6 up. A hemisphere would put the ceiling 4.2
-  // units above the floor at the centre, which is a silo. The flattened dome
-  // reads as a room.
-  const DOME_SEGMENTS = 24;
-  const rise = ROOM.domeApex - ROOM.cycTop;
-
-  for (let i = 1; i <= DOME_SEGMENTS; i++) {
-    const t = (i / DOME_SEGMENTS) * (Math.PI / 2);
-    profile.push(new THREE.Vector2(
-      ROOM.cycWall * Math.cos(t),
-      ROOM.cycTop + rise * Math.sin(t)
-    ));
-  }
-
-  /**
-   * The final point sits exactly on the axis.
-   *
-   * `LatheGeometry` collapses every u at radius zero onto a single line of
-   * vertices, so the apex is a pole — the same degeneracy a sphere has, and
-   * harmless here for the same reason: nothing is textured tightly enough at
-   * the apex for the UV pinch to be visible, and the surface normals are
-   * generated from the profile tangent, which is horizontal there and
-   * therefore correct.
-   */
-  profile.push(new THREE.Vector2(0, ROOM.domeApex));
-
-  const paint = configureMaps(paintedWallMaps(256), 21, 3, anisotropy);
-
-  const cycMaterial = new THREE.MeshStandardMaterial({
-    ...paint,
-    // The wall is the backdrop made physical, so it takes the backdrop's own
-    // lower colour. Where the cyc stops, the gradient continues from the same
-    // value and the join is not a join.
-    color: PALETTE.skyBottom,
-    metalness: 0.0,
-    roughness: 1.0,
-    normalScale: new THREE.Vector2(0.4, 0.4),
-    /**
-     * Seen from the inside.
-     *
-     * LatheGeometry winds its faces outward, so from within the ring every
-     * triangle is back-facing and would be culled — the room would simply not
-     * be there. BackSide flips which face is kept, and the renderer negates
-     * the normal for back-facing fragments, so the lighting comes out correct
-     * without touching the geometry.
-     *
-     * The alternative is reversing the profile point order, which flips the
-     * winding at the source. Both work. This one is chosen because it keeps
-     * the profile in the order it is easiest to read — bottom to top, which is
-     * the order it was derived in.
-     */
-    side: THREE.BackSide,
-  });
-
-  const cycGeometry = new THREE.LatheGeometry(profile, 96);
-
-  /**
-   * The ceiling darkens with height, baked into vertex colours.
-   *
-   * A closed dome the same value all the way over reads as a LID. Every real
-   * venue has a ceiling that disappears — not because it is painted black but
-   * because nothing is aimed at it, so it falls away into the dark and the
-   * room reads as having no top at all. That is the effect the enclosure needs
-   * in order to solve the rim problem without introducing a worse one.
-   *
-   * Vertex colours rather than a gradient texture, and the reason is that the
-   * wall already has one. `paintedWallMaps` is tiled 21 across and 3 up, so a
-   * gradient painted into that map would repeat three times on the way to the
-   * apex. Vertex colour MULTIPLIES the map, so the mottle survives at full
-   * detail while its value falls off exactly once over the whole height —
-   * which is a thing per-vertex data can express and a tiled texture cannot.
-   *
-   * Held at full through the floor sweep and the lower wall, since that band
-   * is where the light pools land and where a falloff would be visible as a
-   * band rather than as depth. Everything above `cycTop` is the part nobody is
-   * lighting.
-   *
-   * Written as a grey multiplier rather than as a colour, so the tint stays
-   * whatever `cycMaterial.color` says it is and the two are independently
-   * adjustable. Vertex colours are consumed as linear values, which is correct
-   * here: this is a multiplier, not a colour to be decoded.
-   */
-  {
-    const position = cycGeometry.attributes.position;
-    const colours = new Float32Array(position.count * 3);
-
-    const FULL_UNTIL = ROOM.cycTop * 0.42;
-    const APEX_VALUE = 0.10;
-
-    for (let i = 0; i < position.count; i++) {
-      const y = position.getY(i);
-      const t = THREE.MathUtils.smoothstep(y, FULL_UNTIL, ROOM.domeApex);
-      // Squared on top of the smoothstep: the eye reads brightness roughly
-      // logarithmically, so a linear ramp to a tenth still looks like a lit
-      // ceiling for most of its length. The extra power puts the visible
-      // falloff where the geometry actually curves over.
-      const value = THREE.MathUtils.lerp(1.0, APEX_VALUE, t * t);
-      colours[i * 3] = value;
-      colours[i * 3 + 1] = value;
-      colours[i * 3 + 2] = value;
-    }
-
-    cycGeometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-    cycMaterial.vertexColors = true;
-  }
-
-  const cyc = new THREE.Mesh(cycGeometry, cycMaterial);
-  cyc.receiveShadow = true;
-  /**
-   * It does not cast. Nothing is outside it to cast onto, and the key light's
-   * shadow camera is a +/-1.2 frustum around the instrument — a 3.3-unit ring
-   * would be entirely outside it, so the only possible outcome is a clipped
-   * edge somewhere across the floor.
-   */
-  cyc.castShadow = false;
-  cyc.name = 'cyclorama';
-  scene.add(cyc);
-
-  // -----------------------------------------------------------------------
-
   function dispose() {
-    for (const material of [floorMaterial, cycMaterial]) {
-      for (const value of Object.values(material)) {
-        if (value && value.isTexture) value.dispose();
-      }
-      material.dispose();
+    for (const value of Object.values(floorMaterial)) {
+      if (value && value.isTexture) value.dispose();
     }
+    floorMaterial.dispose();
     floor.geometry.dispose();
-    cyc.geometry.dispose();
-    scene.remove(floor, cyc);
+    scene.remove(floor);
   }
 
-  return { floor, cyc, dispose, ROOM, MAX_ORBIT };
+  return { floor, dispose, ROOM, MAX_ORBIT };
 }

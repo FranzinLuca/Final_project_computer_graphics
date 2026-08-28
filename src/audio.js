@@ -618,20 +618,61 @@ function playVoice(padId, dest, time, velocity) {
 }
 
 /**
+ * Play a pad now. `capture` decides whether the recorder hears it.
+ *
+ * THE TWO CALLERS WANT DIFFERENT THINGS, AND THE SPLIT IS THE BUG FIX.
+ *
+ * Striking a pad — by mouse, by key, by the mascot — is a PERFORMANCE, and a
+ * performance is what an armed layer exists to capture. Clicking a cell in the
+ * step grid is an EDIT: the note has already been written, at the step the
+ * pointer chose, and the sound is played only so the writer can hear what they
+ * just placed.
+ *
+ * Routing both through one function meant the edit was captured as well as
+ * written, so every note drawn by hand while recording produced TWO notes: the
+ * one at the clicked step, and a second at wherever the playhead happened to be
+ * when the click landed — quantised onto the nearest sixteenth, which is why it
+ * looked like the metronome was adding the note. Worse, the two are
+ * indistinguishable afterwards: nothing in a pattern records how a note got
+ * there, so the only fix available to the user was undo.
+ *
+ * An audition is not an input event. It gets a hearing and a flash, and the
+ * recorder is not told about it.
+ */
+function fire(padId, velocity, capture) {
+  if (!ctx) return;
+  const time = ctx.currentTime;
+
+  playVoice(padId, master, time, velocity);
+  bus.emit('pad:hit', {
+    padId, time, velocity, layer: armed,
+    source: capture ? 'live' : 'audition',
+  });
+
+  // `capturing`, not `armed`: during the count-in the layer is armed and
+  // nothing is written, which is the whole point of a count-in.
+  if (capture && capturing) recordHit(padId, velocity, time);
+}
+
+/**
  * Play a pad now, from a click or a key press.
  *
  * Always audible, and additionally written into the armed layer if recording.
  */
 export function trigger(padId, velocity = 1.0) {
-  if (!ctx) return;
-  const time = ctx.currentTime;
+  fire(padId, velocity, true);
+}
 
-  playVoice(padId, master, time, velocity);
-  bus.emit('pad:hit', { padId, time, velocity, source: 'live', layer: armed });
-
-  // `capturing`, not `armed`: during the count-in the layer is armed and
-  // nothing is written, which is the whole point of a count-in.
-  if (capturing) recordHit(padId, velocity, time);
+/**
+ * Play a pad now WITHOUT the recorder hearing it.
+ *
+ * For anything that makes a sound as feedback on an EDIT rather than as a
+ * performance — the step grid's audition on write, and anything that later
+ * wants to preview a voice. It still emits `pad:hit`, so the cap still flashes
+ * and Otto still swings: the sound is real, it simply is not an input.
+ */
+export function audition(padId, velocity = 1.0) {
+  fire(padId, velocity, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1006,7 +1047,7 @@ function recordHit(padId, velocity, when) {
 // ---------------------------------------------------------------------------
 
 export const audio = {
-  initAudio, start, stop, toggle, trigger, update,
+  initAudio, start, stop, toggle, trigger, audition, update,
   setBpm, getBpm, isRunning, secondsPerStep, quantizeToStep,
   setSwing, getSwing,
   setMasterVolume, setMasterFilter, setMasterResonance,

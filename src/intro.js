@@ -76,11 +76,12 @@ const TOWER_DROP = 2.40;
 /**
  * The furthest from the centre anything on the ground may stand.
  *
- * The room's floor is only flat out to `cycStart`; past that the cyclorama's
- * fillet curves up into the wall, so a point at radius 3.6 has 0.66 units of
- * geometry ABOVE y = 0. Otto was spawning at 3.59 and therefore starting
- * buried in the sweep and driving out through it — which is exactly what it
- * looked like.
+ * When there were walls this stopped the mascot spawning INSIDE the
+ * cyclorama's floor sweep, which he did, at radius 3.59 where the geometry
+ * stands 0.66 units above y = 0. The walls are gone and nothing can be walked
+ * into any more, so the clamp changed meaning rather than becoming redundant:
+ * it now keeps him inside the composed stage instead of arriving out of the
+ * fog like a ferry.
  *
  * Derived from ROOM rather than typed, so the room can be resized without
  * quietly putting the character back inside the wall. The margin is his own
@@ -88,7 +89,7 @@ const TOWER_DROP = 2.40;
  * over half of that inside the flat region, and 0.35 leaves room for the
  * fillet's first few centimetres to be genuinely flat rather than nominally.
  */
-const FLOOR_LIMIT = ROOM.cycStart - 0.35;
+const FLOOR_LIMIT = ROOM.stageR - 0.15;
 
 /**
  * Otto's entry: behind and to the right, on flat ground.

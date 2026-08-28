@@ -196,7 +196,7 @@ const fragmentShader = /* glsl */ `
    * sampling the solver numerically rather than by looking at the render.
    *
    * FIRST, the inside of the cone is q(t) >= 0, and WHICH side of the roots
-   * that is depends on the sign of 'a'. When a < 0 the interior is between the
+   * that is depends on the sign of a. When a < 0 the interior is between the
    * roots, which is the intuitive case and the only one a naive version
    * handles. When a > 0 — the ray more closely aligned with the axis than the
    * cone's own half-angle, which is exactly what happens when the camera looks
@@ -284,11 +284,33 @@ const fragmentShader = /* glsl */ `
     // per step is exact for opaque occluders and costs one texture fetch
     // instead of thirty-two.
     float packed = unpackRGBAToDepth(texture2D(tDepth, vUv));
-    float viewZ = perspectiveDepthToViewZ(packed, uNear, uFar);
-    // viewDir.z is negative (the camera looks down -Z), as is viewZ, so the
-    // quotient is a positive distance along the normalised ray.
-    float sceneT = viewZ / viewDir.z;
-    if (packed >= 1.0) sceneT = uFar;
+
+    /**
+     * NOTHING IN FRONT MEANS THE FAR PLANE, AND BOTH WAYS OF SAYING "NOTHING"
+     * HAVE TO BE READ AS THE SAME THING.
+     *
+     * This is the bug that cut every shaft off along the horizon, and it only
+     * appeared when the cyclorama was deleted. In a closed room every view ray
+     * ended on a wall, so the depth buffer was full and this branch never ran;
+     * with an open floor under an empty sky, every ray above the horizon hits
+     * nothing at all and reads back whatever the target was CLEARED to.
+     *
+     * The clear is now explicitly white — see renderDepth — which unpacks to
+     * 1.0, the far plane. The old test for that was 'packed >= 1.0', which is
+     * one floating-point ulp away from being false: the packing round-trips to
+     * 0.99999994 rather than to exactly one. And a black clear, which is what
+     * the renderer's default gave before, unpacks to 0.0 and converts to a
+     * view depth of -near — so the march ended a few centimetres in front of
+     * the lens and the beam vanished. Both ends of the range now mean the same
+     * thing: there is no surface along this ray, so march the whole beam.
+     */
+    float sceneT = uFar;
+    if (packed > 0.0 && packed < 0.9999) {
+      float viewZ = perspectiveDepthToViewZ(packed, uNear, uFar);
+      // viewDir.z is negative (the camera looks down -Z), as is viewZ, so the
+      // quotient is a positive distance along the normalised ray.
+      sceneT = viewZ / viewDir.z;
+    }
 
     /**
      * Per-pixel dither on the starting offset.
@@ -316,6 +338,35 @@ const fragmentShader = /* glsl */ `
       float t0, t1;
       if (!intersectCone(rayOrigin, rayDir, uApex[i], uAxis[i], uCosOuter[i],
                          uNear, sceneT, t0, t1)) continue;
+
+      /**
+       * CLIP THE INTERVAL TO THE SPHERE THE LIGHT ACTUALLY REACHES.
+       *
+       * A cone is infinite and the throw is not: every sample past uRange
+       * is multiplied by a range fade that has already reached zero, so it
+       * contributes nothing and costs a full step. That was harmless while
+       * the room was closed, because a wall stopped the interval a few units
+       * out. With an open sky the far bound is the FAR PLANE — a hundred
+       * units — so a fixed step count spread twenty-four samples across a
+       * hundred-unit span and landed one or two of them inside the six units
+       * that are lit. The shaft did not merely dim; it broke into moving
+       * blotches wherever the dither happened to place a sample.
+       *
+       * The lit region is exactly the ball of radius uRange about the apex,
+       * so intersecting the ray with that sphere is the same clip the wall
+       * used to provide for free — and it is one quadratic. Steps then land
+       * where the light is, which is worth more than any increase in their
+       * number.
+       */
+      vec3 oc = rayOrigin - uApex[i];
+      float sb = dot(oc, rayDir);
+      float sc = dot(oc, oc) - uRange[i] * uRange[i];
+      float sh = sb * sb - sc;
+      if (sh < 0.0) continue;
+      sh = sqrt(sh);
+      t0 = max(t0, -sb - sh);
+      t1 = min(t1, -sb + sh);
+      if (t1 <= t0) continue;
 
       float span = t1 - t0;
       float stepLen = span / float(uSteps);
@@ -351,8 +402,18 @@ const fragmentShader = /* glsl */ `
 
         // Fade out towards the end of the throw, and in again near the apex,
         // so the shaft has no hard start even if the emitter is on screen.
+        //
+        // The birth fade is nearly twice as long as it was, and the reason is
+        // the deleted ceiling. A dome capped every shaft, so the apex was
+        // never seen and 0.35 of softening was enough to hide a join nobody
+        // could look at. Under an open sky the apex is a point hanging in
+        // empty air whenever the camera tilts up, and a cone that starts at a
+        // point announces its own geometry. Over 0.6 units the beam is already
+        // wide by the time it is bright, so it reads as light arriving from
+        // somewhere above the frame — which is what the emitters were moved
+        // out of shot to say in the first place.
         float range = 1.0 - smoothstep(uRange[i] * 0.55, uRange[i], dist);
-        float birth = smoothstep(0.0, 0.35, dist);
+        float birth = smoothstep(0.0, 0.60, dist);
 
         sum += uColor[i] * (ang * falloff * range * birth * haze(p));
       }
@@ -438,13 +499,41 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     /**
      * Haze density. 1.9, up from 1.0.
      *
-     * This is the single number that decides whether the room reads as having
-     * air in it. Below about 1.2 the shafts are a suggestion and the enclosure
-     * looks empty; much above 2.2 the near half of the frame greys over and
-     * the instrument loses contrast, because scattered light accumulates along
-     * the whole ray including the part in front of the subject.
+     * Cut from 1.9 to 1.1 with the palette, and this is the honest cost of the
+     * pastel direction.
+     *
+     * A shaft is additive, and additive light on a nearly-white background has
+     * almost nowhere to go: the same density that read as a solid beam against
+     * a dark stage now mostly greys the frame, because the accumulation along
+     * the part of the ray IN FRONT of the subject washes the subject out
+     * without making the beam any more visible behind it.
+     *
+     * So the shafts become an accent rather than the subject. What carries
+     * them now is HUE rather than brightness — four saturated colours against
+     * a desaturated ground — which is why the white sparkle beam had to become
+     * yellow and why they are worth keeping at all rather than cutting.
      */
-    uDensity: { value: 1.9 },
+    /**
+     * Haze density. Back to 1.9 with the dark backdrop.
+     *
+     * This is the single number that decides whether the room reads as having
+     * air in it, and it is entirely a function of what is behind the shafts.
+     * Against a pale ground it had to be halved twice or the near half of the
+     * frame greyed over; against a dark one the same value is barely visible.
+     * Below about 1.2 the shafts are a suggestion; much above 2.2 the
+     * instrument starts losing contrast to the haze in front of it.
+     */
+    /**
+     * Raised again, to 2.4, once the march stopped wasting its samples.
+     *
+     * Not a taste adjustment on top of the previous one: the sphere clip added
+     * to the loop above put every step inside the lit ball instead of spreading
+     * them across a hundred units of empty sky, so the SAME density now
+     * integrates a shaft that is actually sampled. The old 1.9 was chosen
+     * against a march that was throwing most of its budget away above the
+     * horizon, and it is the reason the beams read as faint even at full level.
+     */
+    uDensity: { value: 2.4 },
     uSteps: { value: 24 },
     uCount: { value: 0 },
     uApex: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector3()) },
@@ -590,6 +679,9 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     }
   }
 
+  /** Scratch for saving the renderer's clear colour around the depth pass. */
+  const previousClear = new THREE.Color();
+
   /**
    * Render the depth prepass. Must run BEFORE the main scene render, because
    * it swaps the scene's materials out and back.
@@ -608,8 +700,28 @@ export function initVolumetrics({ renderer, scale = 0.5 }) {
     scene.overrideMaterial = depthMaterial;
 
     renderer.setRenderTarget(depthTarget);
+
+    /**
+     * CLEARED TO WHITE, WHICH IS THE FAR PLANE.
+     *
+     * The renderer's default clear is transparent black, and packed depth
+     * reads that back as ZERO — the NEAR plane. Every pixel the geometry did
+     * not cover therefore claimed there was a surface five centimetres in
+     * front of the lens, and the march was clipped to nothing against it.
+     *
+     * This never showed while the scene was a closed room, because a wall or
+     * a dome covered every pixel and the cleared value was never sampled. The
+     * moment the enclosure came out, the sky stopped writing depth and every
+     * shaft was sliced off along the exact line where the floor ends — the
+     * horizon. A clear value is not a detail of a buffer nobody reads; here it
+     * is the depth of "nothing", and nothing has to be far away.
+     */
+    renderer.getClearColor(previousClear);
+    const previousClearAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0xffffff, 1);
     renderer.clear();
     renderer.render(scene, camera);
+    renderer.setClearColor(previousClear, previousClearAlpha);
     renderer.setRenderTarget(null);
 
     scene.overrideMaterial = previousOverride;

@@ -307,11 +307,19 @@ export function initSequencer({ audio, container = document.body }) {
      *
      * Placing a note plays it, once, immediately. Drawing a pattern otherwise
      * means writing in silence and finding out what it sounds like a bar
-     * later, which is the difference between composing and typing. It goes
-     * through `audio.trigger`, so it is a live hit on the master bus and is
-     * heard even if the layer being drawn into is muted.
+     * later, which is the difference between composing and typing. It goes to
+     * the master bus, so it is heard even if the layer being drawn into is
+     * muted.
+     *
+     * `audition`, NOT `trigger`, and the difference is a bug that survived
+     * until someone drew a pattern with a layer armed. `trigger` is the live
+     * performance path and feeds the recorder, so writing a note by hand while
+     * recording wrote it twice: once at the clicked step, and once more at
+     * whichever step the playhead was passing — which reads as the metronome
+     * adding notes of its own. The grid is an editor; an editor's preview is
+     * not a performance.
      */
-    if (audio.addStep(layer, step, selectedPad)) audio.trigger(selectedPad, 0.9);
+    if (audio.addStep(layer, step, selectedPad)) audio.audition(selectedPad, 0.9);
   }
 
   grid.addEventListener('click', (event) => {

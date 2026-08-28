@@ -43,50 +43,53 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 /**
- * AgX, having been Neutral, and having deliberately not become ACES.
+ * NEUTRAL, having been AgX, having been Neutral before that.
  *
- * All three compress the linear render into displayable range and disagree
- * about what to do with saturated colour on the way. The choice mattered
- * differently before phase 10 than it does after, which is why it changed.
+ * The curve has followed the art direction both times, and the rule behind
+ * both switches is the same one: pick the tone mapper that protects whatever
+ * the frame is actually made of.
  *
- * In the bright studio, Neutral was right. Khronos PBR Neutral holds hue and
- * saturation until it is genuinely forced to roll off, and the scene had a
- * cream shell and coloured pads that had to stay the colour they were painted.
- * ACES was rejected there for exactly one reason: it was designed for film
- * and deliberately desaturates as values climb, so a bright saturated pad
- * drifts towards white.
+ * The DARK STAGE was mostly shadow with a few very bright sources in it, so it
+ * needed a real toe and shoulder — shadows compressing into a deep foot,
+ * highlights rolling off rather than clipping. AgX has both and holds hue
+ * better than ACES on the way up, which is why it won there.
  *
- * That objection to ACES has not gone away — it is why the room going dark did
- * NOT come with a switch to ACES, even though ACES is the reflexive answer to
- * "make it more cinematic". Sixteen pads are lit by emission alone, and
- * palette.js solves a bisection per hue specifically to hold them at matched
- * luminance; a curve that desaturates the brightest of them would spend that
- * work.
+ * The PASTEL SCENE is the opposite frame. Almost everything sits in the upper
+ * middle of the range, nothing is dark, and the few bright things are
+ * saturated colour rather than white light. AgX's toe now crushes a scheme
+ * whose entire design is high-lightness colour, and its shoulder desaturates
+ * the pads exactly where they are supposed to be at their most vivid. Khronos
+ * PBR Neutral holds hue and saturation until it is genuinely forced to roll
+ * off, which is precisely the property this palette is built on.
  *
- * What Neutral does not have is a shoulder worth the name. It is close to
- * linear through the midtones, which is fine when the frame occupies the
- * middle of the range and looks washed out when the frame is mostly dark with
- * a few very bright sources in it — which is exactly the frame this phase
- * builds. AgX has a genuine filmic toe and shoulder, so shadows compress into
- * a deep foot instead of sitting at a flat grey, and it holds hue far better
- * than ACES does on the way up: a saturated source climbing past 1.0 goes
- * lighter before it goes white.
+ * The cost is honest: Neutral protects highlights less well. Nothing here is a
+ * chrome sphere and the brightest thing in the frame is a pad, so there is
+ * nothing to protect.
+ */
+/**
+ * AgX again, with the dark room.
  *
- * Kept as one assignment with fallbacks rather than buried in a config, so the
- * comparison is one line to run and can be shown rather than argued.
+ * Neutral was the right answer for the pastel experiment — it holds hue and
+ * saturation until genuinely forced to roll off, which is what a flat cartoon
+ * surface needs. What it lacks is a shoulder: it is close to linear through
+ * the midtones, which is fine when the frame occupies the middle of the range
+ * and washed out when the frame is mostly dark with a few very bright sources
+ * in it. That is exactly this frame.
+ *
+ * Still not ACES, for the reason that has held throughout: ACES desaturates as
+ * values climb, and sixteen pads are lit by emission whose luminance
+ * palette.js solves per hue. AgX has the filmic toe and shoulder without
+ * spending that work.
  */
 renderer.toneMapping =
   THREE.AgXToneMapping ?? THREE.NeutralToneMapping ?? THREE.ACESFilmicToneMapping;
 
-/**
- * Exposure above 1.0, which is not a fudge for "the scene got dark".
- *
- * AgX's toe is aggressive by design and it lands most of a dim scene in the
- * bottom of the curve; the ambient budget was cut for contrast, not to lose
- * the midtones with it. 1.15 puts the lit side of the slab back where it was
- * while leaving the floor and the cyc in the foot, which is precisely the
- * separation the phase is after.
- */
+// Back to 1.0. The 1.15 existed to lift AgX's aggressive toe off the
+// midtones; Neutral has no toe to compensate for, and the same exposure on a
+// pale scheme would push the cream bezel into clipping.
+// AgX's toe is aggressive by design and lands most of a dim scene in the
+// bottom of the curve. The ambient budget was cut for contrast, not to lose
+// the midtones with it.
 renderer.toneMappingExposure = 1.15;
 
 // ---------------------------------------------------------------------------
@@ -113,15 +116,14 @@ controls.maxDistance = MAX_ORBIT;
 controls.maxPolarAngle = Math.PI * 0.495;
 
 /**
- * A floor on the polar angle as well as a ceiling, now that there IS a
- * ceiling.
+ * Still a floor on the polar angle, for a different reason.
  *
- * Without it the user can orbit to directly overhead, which at the maximum
- * distance puts the camera at y = target + MAX_ORBIT — about 3.9 — and the
- * dome's apex is at 4.9. That clears, but only just, and the margin shrinks
- * every time the room is retuned. Clamping to 0.16 keeps the camera under the
- * shoulder of the dome rather than under its apex, which is a much larger
- * gap, and costs a view nobody wants: straight down at a flat slab.
+ * It used to keep the camera clear of the dome's apex. There is no dome now,
+ * so nothing is in the way — but straight down at a flat slab is a view nobody
+ * wants, and more importantly the orbit degenerates there: at phi = 0 the
+ * azimuth has no effect at all, so a user who drags to the top finds the
+ * camera stops responding to half their input. 0.16 keeps the control
+ * meaningful everywhere it can be reached.
  */
 controls.minPolarAngle = 0.16;
 
@@ -130,40 +132,34 @@ const cameraRig = initCamera({ camera, controls, maxOrbit: MAX_ORBIT });
 // ---------------------------------------------------------------------------
 // The static lights: key, fill, rim
 //
-// One key doing most of the work, a cool fill to keep the shadow side from
-// going dead, and a rim to separate the silhouette from the backdrop. The key
-// is far brighter than the other two on purpose: MeshToonMaterial bands each
-// light independently and sums the results, so three comparable lights would
-// give the mascot three overlapping sets of bands and no readable terminator.
+// THE BUDGET INVERTS WITH THE PALETTE.
 //
-// PHASE 10: every number here came down, and by different amounts.
+// The dark stage cut every ambient term by roughly a factor of four so that a
+// reactive fixture adding 3 candela to a surface was a visible change rather
+// than a 5% one. The pastel scene wants the opposite: flat, generous,
+// near-shadowless light, because a cartoon surface is a field of colour and
+// the thing that ruins one is a dark terminator running across it.
 //
-// This is the half of the phase that is subtraction. The reactive rig in
-// lighting.js was correct and invisible, because a fixture adding 3 candela to
-// a surface already receiving 2 from four other sources is a change of a few
-// percent — under the threshold at which anything is noticed. The fix is not a
-// brighter rig, which would only blow out the surfaces it hits; it is a
-// quieter room.
+// So the ambient terms go back up and the key comes down relative to them. The
+// key is still the brightest single source — something has to cast the shadow
+// and give the forms a direction — but the ratio between lit and unlit sides
+// is now about 1.6:1 where on the dark stage it was nearer 6:1.
 //
-// The cuts are not uniform, because the three lights are not doing the same
-// job. The KEY carries form and legibility and comes down by half, no further:
-// it is what a grader sees with the transport stopped, and it is the only
-// shadow caster. The FILL comes down by nearly two thirds, because filling the
-// shadow side is precisely what flattens a frame and the hemisphere term in
-// lighting.js now lifts it dynamically instead. The RIM barely moves — a rim
-// costs nothing in contrast, since it lands only on silhouette edges, and it
-// does more work in a dark room than in a bright one because there is now
-// somewhere dark for the edge to read against.
+// The rim is the one that changes most. On a dark ground it was doing the
+// heaviest lifting per unit of intensity, because a bright edge against black
+// is free separation. Against a pale ground it lands on an edge that is
+// already lighter than what surrounds it and does almost nothing, so it drops
+// to a token value rather than being deleted — it still helps on the mascot's
+// dark panel lines.
 // ---------------------------------------------------------------------------
 
 /*
-  The intensities are budgeted, not guessed. Lambert diffuse out of three is
+  Budgeted, not guessed. Lambert diffuse out of three is
   dotNL * intensity * albedo / PI per light, plus roughly envColour *
-  environmentIntensity * albedo for the image-based term. Otto's shell is the
-  brightest albedo in the scene at 0.93, so his lit side now sums to about
-  0.42 against the 0.78 it used to — comfortably inside AgX's linear section,
-  with the whole shoulder left free for the pads and the lenses, which are the
-  only things in the frame that should be allowed to approach white.
+  environmentIntensity * albedo for the image-based term. The cream bezel is
+  the brightest albedo at 0.98, and its lit side sums to about 0.86 — under
+  the point where Neutral begins to compress, which is what keeps cream reading
+  as cream rather than clipping to white.
 */
 const hemi = new THREE.HemisphereLight(PALETTE.skyTop, PALETTE.ground, 0.55);
 scene.add(hemi);
@@ -174,21 +170,26 @@ key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.near = 0.5;
 key.shadow.camera.far = 12;
-// Sized to the scene, not left oversized. With the instrument at 1.5x it opens
-// to 1.5 units across and the mascot stands beside it, so the cast set spans
-// about 2.6 units — a +/-1.7 frustum contains it with a margin and still puts
-// far more of the 2048 map on the caster than the +/-2.2 the old case needed.
 key.shadow.camera.left = -1.7;
 key.shadow.camera.right = 1.7;
 key.shadow.camera.top = 1.7;
 key.shadow.camera.bottom = -1.7;
-
-// Both biases scale with the world size of a shadow texel, which grew again
-// with the frustum. The slab also grew, so the ratio of bias to caster
-// thickness is roughly where it was — these move with the frustum, not with
-// the object.
 key.shadow.bias = -0.0005;
 key.shadow.normalBias = 0.008;
+
+/**
+ * A soft shadow, and a weak one.
+ *
+ * `shadow.intensity` scales how dark the occluded region gets. At 1.0 a shadow
+ * on a pastel floor is a grey hole in a coloured field, which is the single
+ * most effective way to make a cartoon scene look like a photograph of a toy.
+ * 0.45 keeps the contact information — you can still see what is standing on
+ * what — while letting the floor's own colour show through it.
+ */
+// Back to a full-strength shadow. A softened one was needed against a pale
+// floor, where a dense shadow reads as a hole punched in the ground; on a dark
+// floor the shadow has very little contrast to spend and needs all of it.
+if ('intensity' in key.shadow) key.shadow.intensity = 1.0;
 scene.add(key);
 
 const fill = new THREE.DirectionalLight(0xc8dcff, 0.16);
