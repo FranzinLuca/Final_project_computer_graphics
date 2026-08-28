@@ -669,7 +669,7 @@ export function trigger(padId, velocity = 1.0) {
  * For anything that makes a sound as feedback on an EDIT rather than as a
  * performance — the step grid's audition on write, and anything that later
  * wants to preview a voice. It still emits `pad:hit`, so the cap still flashes
- * and Otto still swings: the sound is real, it simply is not an input.
+ * and Rob8 still swings: the sound is real, it simply is not an input.
  */
 export function audition(padId, velocity = 1.0) {
   fire(padId, velocity, false);

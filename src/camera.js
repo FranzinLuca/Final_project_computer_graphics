@@ -117,12 +117,12 @@ const MIN_PHI = 0.12;
 export const SHOTS = [
   {
     name: 'Overview',
-    description: 'The default. The instrument, both stacks and Otto in one frame.',
+    description: 'The default. The instrument, both stacks and Rob8 in one frame.',
     /**
      * The instrument is the subject and the stacks are allowed to crop at the
      * outer edge — they are set dressing, and insisting on their outer corners
      * pushes the radius past 3.5, which makes the slab small in its own
-     * establishing shot. The must-include set is the wing tips, Otto and the
+     * establishing shot. The must-include set is the wing tips, Rob8 and the
      * stacks' INNER faces.
      *
      * The target came DOWN from 0.60 to 0.38, and that is the correction that
@@ -168,7 +168,7 @@ export const SHOTS = [
     target: [0, 0.18, 0],
   },
   {
-    name: 'Otto',
+    name: 'Rob8',
     description: 'Close on the mascot, for his own joint chain.',
     /**
      * Orbits HIM, not the instrument — the target is his position rather than
@@ -183,7 +183,7 @@ export const SHOTS = [
      * at (1.66, 0.52) and did not exist when the shot was authored. The move
      * would have driven the lens through it on any wide window.
      *
-     * -0.28 also happens to be the better portrait: Otto is yawed -0.62 so he
+     * -0.28 also happens to be the better portrait: Rob8 is yawed -0.62 so he
      * faces between the pads and the room, and a camera a quarter turn to his
      * left of the +Z axis is very nearly face-on to him rather than looking at
      * his cheek.

@@ -1,10 +1,10 @@
 /**
- * mascot.js — Otto, the drum tech.
+ * mascot.js — Rob8, the drum tech.
  *
  * A tracked service robot: boxy amber shell, two binocular eye barrels on a
  * neck, two arms on sticks. The name works twice over now that he is a machine.
  *
- * Otto is not decoration bolted onto the scene. He is a second hierarchical
+ * Rob8 is not decoration bolted onto the scene. He is a second hierarchical
  * model with his own joint chain, and he is animated by the same mechanism the
  * pads are — rig.js subscribes to 'pad:hit' and flashes a pad, and this file
  * subscribes to the identical event and swings an arm. Neither knows the other
@@ -44,7 +44,7 @@ import { roundedBoxGeometry, roundedCylinderGeometry } from './geometry.js';
 // ---------------------------------------------------------------------------
 // Proportions
 //
-// Cartoon proportion is mostly one rule: make the head far too big. Otto's eye
+// Cartoon proportion is mostly one rule: make the head far too big. Rob8's eye
 // barrels are each nearly half the width of his whole chassis, which is what
 // reads as "character" rather than "appliance".
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ const REST = { lift: -1.50, elbow: 0.60, wrist: 0.30 };
 // ---------------------------------------------------------------------------
 
 /**
- * Build Otto.
+ * Build Rob8.
  *
  * @param {{ scale?: number }} options
  */
@@ -73,7 +73,7 @@ export function buildMascot({ scale = 1.2 } = {}) {
    * One ramp texture shared by every material on the character.
    *
    * MeshToonMaterial rather than MeshStandardMaterial, and only here. The rig
-   * is a manufactured object and gets physically based shading; Otto is a
+   * is a manufactured object and gets physically based shading; Rob8 is a
    * drawn character and gets a banded ramp. Two shading models in one scene is
    * a deliberate art-direction choice, not an inconsistency — it is the same
    * separation an animated film makes between its sets and its cast, and it is
@@ -282,7 +282,7 @@ export function buildMascot({ scale = 1.2 } = {}) {
   /**
    * Swing an arm, without a pad being involved.
    *
-   * Extracted so the intro can make Otto press something. The alternative was
+   * Extracted so the intro can make Rob8 press something. The alternative was
    * for the intro to publish a fake `pad:hit`, which would have been shorter
    * and wrong: rig.js would flash a pad that has not been struck, and the
    * event log would show a note that was never played. An animation call and

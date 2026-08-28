@@ -1,7 +1,7 @@
 /**
  * intro.js — the power-on sequence.
  *
- * Otto drives in from off-camera with the camera following him, throws the
+ * Rob8 drives in from off-camera with the camera following him, throws the
  * handle on a floor console, and the stage drops in from above: the speaker
  * stacks first, then the instrument, each landing with a bounce and a puff of
  * dust. The camera pulls back to frame it, and the slab stays SHUT — opening
@@ -34,7 +34,7 @@
  * A table of absolute times, exactly like the fold sequence in hierarchy.js,
  * and deliberately not tween.js's `chain()`. Chaining expresses "after", and
  * almost every relationship here is "at": the stacks start falling while
- * Otto's arm is still coming down, and he backs away while the instrument is
+ * Rob8's arm is still coming down, and he backs away while the instrument is
  * still in the air. A machine that waits politely for its operator reads as a
  * slideshow.
  *
@@ -92,7 +92,7 @@ const TOWER_DROP = 2.40;
 const FLOOR_LIMIT = ROOM.stageR - 0.15;
 
 /**
- * Otto's entry: behind and to the right, on flat ground.
+ * Rob8's entry: behind and to the right, on flat ground.
  *
  * Radius 2.86, which `clampToFloor` below would enforce anyway — the constant
  * is written as an already-legal value so that reading it does not require
@@ -209,7 +209,7 @@ export function initIntro(deps) {
 
   const consoleRoot = new THREE.Group();
   consoleRoot.position.set(CONSOLE.x, 0, CONSOLE.z);
-  // Turned to face the point Otto stops at, so the panel is raked towards him
+  // Turned to face the point Rob8 stops at, so the panel is raked towards him
   // and the throw is broadside to the default camera.
   consoleRoot.rotation.y = -0.62;
   scene.add(consoleRoot);
@@ -505,7 +505,7 @@ export function initIntro(deps) {
     const cues = [];
     const at = (ms, run) => cues.push({ ms, run });
 
-    // --- Otto arrives, and the camera goes with him -----------------------
+    // --- Rob8 arrives, and the camera goes with him -----------------------
     at(CUE.driveIn, () => {
       /**
        * The camera FOLLOWS rather than being tweened to where he will be.

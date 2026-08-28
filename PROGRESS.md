@@ -49,7 +49,7 @@ index.html          boot gate, import map, canvas, diagnostics element
   palette.js        the colour scheme, single source of truth
   geometry.js       rounded box and rounded cylinder generators
   rig.js            geometry, materials, joint skeleton
-  mascot.js         Otto: second joint chain, idle and strike animation
+  mascot.js         Rob8: second joint chain, idle and strike animation
   hierarchy.js      constraint solver + unfold/fold sequence
   textures.js       procedural map generation
   interaction.js    raycasting, keyboard, knob dragging
@@ -750,7 +750,7 @@ repeat rate.
 
 | Requirement | How it is met | State |
 |---|---|---|
-| Hierarchical model, at least one complex | Folding road case: 5–6 levels, 3 branches, every level a real DOF (D33). **Plus** Otto, a second chain 8 levels deep (D66) | **Done** |
+| Hierarchical model, at least one complex | Folding road case: 5–6 levels, 3 branches, every level a real DOF (D33). **Plus** Rob8, a second chain 8 levels deep (D66) | **Done** |
 | Animations exploiting that structure | Scissor coupling (D34), counter-rotation (D35), staggered sequence (D36), tentacle chains (D66), children carried by parents | **Done** |
 | Lights, at least one | Key with shadows, fill, rim, hemisphere, plus image-based from a procedural environment (D62) | Interim; phase 5 |
 | Textures of different kinds | Colour, normal, roughness, emissive, **toon gradient ramp** (D64), **drawn glyphs** (D68), **prefiltered environment** (D62) — 7 kinds, all procedural | **Done** |
@@ -998,7 +998,7 @@ grain, which per-face UVs cannot do.
 
 ### D64 — Two shading models, on purpose
 
-The rig is a manufactured object and keeps physically based shading. Otto is a
+The rig is a manufactured object and keeps physically based shading. Rob8 is a
 drawn character and gets `MeshToonMaterial` with a banded gradient ramp.
 
 This is an art-direction choice, not an inconsistency: it is the same
@@ -1038,7 +1038,7 @@ terminator.
 
 ### D66 — The mascot is a second hierarchical model, driven by an existing event
 
-Otto is an octopus because the joke writes itself for a drum machine: eight
+Rob8 is an octopus because the joke writes itself for a drum machine: eight
 arms, and he only ever uses two of them.
 
 He is not a prop. He is a second joint chain, eight levels deep, and every
@@ -1052,7 +1052,7 @@ the composition explicit and the bug impossible.
 **The part worth saying out loud in the oral:** a whole animated character was
 added to this project without editing `audio.js`, `interaction.js` or `rig.js`.
 `mascot.js` subscribes to `pad:hit` — the identical event `rig.js` uses to
-flash a pad — so Otto drums in time whether the hit came from a mouse, a key or
+flash a pad — so Rob8 drums in time whether the hit came from a mouse, a key or
 the sequencer, and none of those code paths knows he exists. That is the third
 time the decoupling rule (D5) has paid for itself, and the cleanest
 demonstration of it so far.

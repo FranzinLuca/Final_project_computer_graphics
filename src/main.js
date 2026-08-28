@@ -277,7 +277,7 @@ slabShadow.userData.kind = 'rig';
 scene.add(slabShadow);
 
 /**
- * Otto's patch rides with Otto.
+ * Rob8's patch rides with Rob8.
  *
  * Parented to his root rather than left in the scene, for the same reason the
  * slab's is parented to the rig: during the power-on sequence he drives across
@@ -632,7 +632,7 @@ bus.once('started', ({ ctx }) => {
   Object.assign(window, { ui, sequencer });
 
   // The slab no longer opens on a bare timer. It comes up out of the floor
-  // when Otto throws the lever, and hierarchy.open() is one cue in that
+  // when Rob8 throws the lever, and hierarchy.open() is one cue in that
   // sequence rather than the whole of the power-on.
   intro.start();
 });

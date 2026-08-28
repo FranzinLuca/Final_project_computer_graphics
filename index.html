@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Drum Rig — Interactive Graphics</title>
-
+<!--
+Define module for imports with aliases.
+  three -> three.js
+  three/addons -> official addons
+  @tweenjs/tween.js -> tween animation library
+  lil-gui -> lightweight ui control library 
+-->
 <script type="importmap">
 {
   "imports": {
@@ -18,23 +24,20 @@
 
 <style>
   /*
-    The overlay palette is the authored scene palette, matching src/palette.js —
-    now the dark studio one. The card went dark with it, which is not only
-    consistency: a cream card fading out to reveal a near-black stage is a
-    brightness step of about eight to one, and the eye takes a second to
-    adapt across it. Matching the two means the reveal is a dissolve rather
-    than a flash.
-
-    It is worth being precise about "matching": these are the values the
-    backdrop is authored as, not the values it renders as. three draws the
-    background texture through the tone mapper and back out to sRGB, so the
-    rendered sweep lands a few percent darker than the hex below. The overlay
-    covers the whole viewport and cross-fades over 420 ms, so the two are never
-    on screen side by side and the difference is invisible — but the numbers
-    are not identical, and pretending otherwise would send someone hunting for
-    a bug that is not there.
+    The style should always reflect the one found in palette.js otherwise there will be a jump of style
+    which is not professional.
+    Two separate source of thruth 
   */
   :root {
+    /*
+    Base on my understanding should be a standard name conventions
+    -sky-top/bottom -> background gradient
+    -shell/deep -> panel surface
+    -ink -> text
+    -dim -> secondary text
+    -coral/deep -> accent, base/hover
+    -mono/sans -> fonts
+    */
     --sky-top:    #2e3450;
     --sky-bottom: #0f1220;
 
@@ -49,6 +52,7 @@
     --sans: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
   }
 
+  /* without this any element with fixed width and padding will render wider that expected */
   * { box-sizing: border-box; }
 
   html, body {
@@ -67,6 +71,11 @@
     touch-action: none;
   }
 
+  /*
+    Nedded to stop audio when mouse overlay is missing, 
+    The div stop registering clicks if the mouse
+    when this class is applied
+  */
   #overlay {
     position: fixed;
     inset: 0;
@@ -78,47 +87,40 @@
   }
   #overlay.is-hidden { opacity: 0; pointer-events: none; }
 
+  /*
+    Three shadow fake a sense of depth in flat CSS
+  */
   .card {
     width: min(430px, calc(100vw - 32px));
     padding: 40px 36px 32px;
     background: var(--shell);
-    /*
-      A 28px radius, not a 4px one. The card is the first thing anyone sees, so
-      it has to make the same promise the geometry does — nothing in this
-      project has a hard corner.
-    */
     border-radius: 28px;
     text-align: center;
-    /*
-      The inset highlight is now a rim light rather than a sheen. On a light
-      card it read as gloss on plastic; on a dark one at the same opacity it
-      reads as a bright edge, which is the same cue the geometry's fillets get
-      from the rim light in the scene.
-    */
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.10) inset,
       0 24px 50px -14px rgba(0, 0, 0, 0.70),
       0 2px 6px rgba(0, 0, 0, 0.35);
   }
 
-  /* The pad palette, as five dots. Says "this is a colourful thing" before the
-     WebGL context has drawn a single triangle. */
-  .swatches {
+  /*
+    Just five colored circle for style
+  */
+  .circles {
     display: flex;
     justify-content: center;
     gap: 7px;
     margin-bottom: 22px;
   }
-  .swatches i {
+  .circles i {
     width: 11px;
     height: 11px;
     border-radius: 50%;
   }
-  .swatches i:nth-child(1) { background: hsl(7,   60%, 58%); }
-  .swatches i:nth-child(2) { background: hsl(32,  60%, 58%); }
-  .swatches i:nth-child(3) { background: hsl(50,  60%, 58%); }
-  .swatches i:nth-child(4) { background: hsl(187, 60%, 58%); }
-  .swatches i:nth-child(5) { background: hsl(270, 60%, 58%); }
+  .circles i:nth-child(1) { background: hsl(7,   60%, 58%); }
+  .circles i:nth-child(2) { background: hsl(32,  60%, 58%); }
+  .circles i:nth-child(3) { background: hsl(50,  60%, 58%); }
+  .circles i:nth-child(4) { background: hsl(187, 60%, 58%); }
+  .circles i:nth-child(5) { background: hsl(270, 60%, 58%); }
 
   .title {
     margin: 0 0 8px;
@@ -134,6 +136,7 @@
     color: var(--dim);
   }
 
+  /* Start "pill" button + interactions */
   #start {
     font-family: var(--sans);
     font-size: 15px;
@@ -176,28 +179,21 @@
   /*
     The hover readout.
 
-    A DOM element rather than a three.js sprite, and the reasoning is the same
-    one behind the boot overlay being HTML: text that must be READ wants the
-    browser's own type rasteriser, hinted and subpixel-positioned at the exact
-    device resolution. A canvas texture on a quad in the scene is resampled by
-    the GPU at whatever angle and distance the camera happens to be at, and it
-    also inherits the adaptive pixel ratio — so on a machine that has dropped
-    to the 1.0 tier the labels would blur exactly when the frame rate says the
-    user is already having a worse time.
+    text that must be READ wants the browser's own type rasteriser with the
+    device resolution.
 
-    `pointer-events: none` so it can never eat a click meant for the canvas
-    underneath it.
+    `pointer-events: none` so it can never eat a click
   */
   #hover {
     position: fixed;
     left: 0;
     top: 0;
     padding: 8px 12px;
-    background: rgba(12, 15, 26, 0.92);
+    background: rgba(16, 19, 32, 0.94);
     border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 10px;
     box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.8);
-    color: var(--ink);
+    color: #e8ebf5;
     font-size: 13px;
     line-height: 1.35;
     white-space: nowrap;
@@ -212,19 +208,13 @@
   #hover span {
     display: block;
     font-size: 11.5px;
-    color: var(--dim);
+    color: #9aa3ba;
     letter-spacing: 0.01em;
   }
 
 
   /*
-    The step grid.
-
-    Docked to the bottom rather than floating, because it is a workbench and
-    not a dialogue: it is open for the whole session, the scene has to stay
-    visible above it, and a panel that can be dragged over the instrument will
-    be. `max-height` on the grid rather than `display: none` for the collapsed
-    state, so the transition animates and the layout does not jump.
+    Define the sequencer below the page. useful to have better control over the beats
   */
   #seq {
     position: fixed;
@@ -232,72 +222,71 @@
     bottom: 12px;
     transform: translateX(-50%);
     width: min(1080px, calc(100vw - 24px));
-    background: rgba(14, 17, 30, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(16, 19, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 14px;
     box-shadow: 0 20px 50px -18px rgba(0, 0, 0, 0.85);
-    color: var(--ink);
+    color: #e8ebf5;
     font-size: 12px;
     z-index: 7;
     overflow: hidden;
   }
-
+  /* Top bar of the sequencer */
   .seq-bar {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 9px 12px;
-    border-bottom: 1px solid rgba(47, 58, 99, 0.10);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
   .seq-spacer { flex: 1; }
 
   .seq-btn {
     font: inherit;
     color: var(--ink);
-    background: rgba(47, 58, 99, 0.06);
-    border: 1px solid rgba(47, 58, 99, 0.12);
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.11);
     border-radius: 8px;
     padding: 6px 12px;
     cursor: pointer;
   }
-  .seq-btn:hover { background: rgba(47, 58, 99, 0.12); }
+  .seq-btn:hover { background: rgba(255, 255, 255, 0.14); }
   .seq-btn:disabled { opacity: 0.35; cursor: default; }
   .seq-rec.is-active {
-    background: rgba(255, 95, 82, 0.22);
-    border-color: rgba(255, 95, 82, 0.6);
+    background: rgba(255, 95, 82, 0.24);
+    border-color: rgba(255, 95, 82, 0.62);
     color: #ffb4ad;
   }
   .seq-collapse { padding: 6px 10px; }
 
-  .seq-state { color: var(--dim); min-width: 210px; }
+  .seq-state { color: #9aa3ba; min-width: 210px; }
 
   /* Says which button does what, once, next to the control it applies to. */
   .seq-hint {
-    color: var(--dim);
+    color: #7f889f;
     font-size: 11px;
     opacity: 0.75;
   }
   @media (max-width: 900px) { .seq-hint { display: none; } }
-  .seq-state.is-play { color: #12a89a; }
-  .seq-state.is-rec { color: #e0475c; }
+  .seq-state.is-play { color: #6ff0d8; }
+  .seq-state.is-rec { color: #ff8078; }
   /*
-    The count-in blinks and nothing else does. It is the only transient state
-    in the machine — it lasts one bar and then it is gone — so it is the only
-    one worth spending motion on.
+    The count-in blinks and do nothing else. It lasts one bar and then it is gone
   */
   .seq-state.is-countin { color: #ffb257; animation: seq-blink 0.5s steps(2) infinite; }
   @keyframes seq-blink { 50% { opacity: 0.35; } }
 
-  .seq-field { color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .seq-field { color: #9aa3ba; display: flex; align-items: center; gap: 6px; }
   .seq-field select {
     font: inherit;
-    color: var(--ink);
-    background: rgba(47, 58, 99, 0.06);
-    border: 1px solid rgba(47, 58, 99, 0.12);
+    color: #e8ebf5;
+    background: #232a3c;
+    border: 1px solid rgba(255, 255, 255, 0.11);
     border-radius: 7px;
     padding: 5px 7px;
   }
-
+  .seq-field select option { background: #232a3c; color: #e8ebf5; }
+  /* collapse mechanism */
   .seq-grid {
     padding: 8px 12px 12px;
     max-height: 260px;
@@ -315,7 +304,7 @@
     gap: 4px;
     width: 132px;
     flex: none;
-    color: var(--dim);
+    color: #9aa3ba;
   }
   .seq-head.is-muted { opacity: 0.45; }
   .seq-name { width: 20px; font-weight: 650; }
@@ -323,28 +312,24 @@
   /* Filled-layer indicator: the answer to "which layer has anything in it". */
   .seq-dot {
     width: 7px; height: 7px; border-radius: 50%;
-    background: rgba(47, 58, 99, 0.16);
+    background: rgba(255, 255, 255, 0.16);
     flex: none;
   }
-  .seq-dot.is-filled { background: #12a89a; box-shadow: 0 0 6px rgba(18, 168, 154, 0.5); }
+  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
 
   .seq-mini {
     font: inherit;
     font-size: 10px;
     line-height: 1;
-    color: var(--dim);
-    background: rgba(47, 58, 99, 0.05);
-    border: 1px solid rgba(47, 58, 99, 0.12);
+    color: #9aa3ba;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 5px;
     padding: 4px 5px;
     cursor: pointer;
   }
-  .seq-mini:hover { color: var(--ink); background: rgba(47, 58, 99, 0.10); }
-  .seq-arm.is-armed {
-    color: #fff;
-    background: #ff8078;
-    border-color: #ff7b70;
-  }
+  .seq-mini:hover { color: #e8ebf5; background: rgba(255, 255, 255, 0.13); }
+  .seq-arm.is-armed { color: #fff; background: #e2483c; border-color: #ff7b70; }
   .seq-head.is-solo .seq-mini:nth-of-type(3) { color: #ffd08a; }
 
   /*
@@ -367,16 +352,16 @@
     padding: 0;
     font: inherit;
     font-size: 9px;
-    color: rgba(0, 0, 0, 0.65);
-    background: rgba(47, 58, 99, 0.07);
+    color: rgba(0, 0, 0, 0.7);
+    background: rgba(255, 255, 255, 0.055);
     border: 1px solid transparent;
     border-radius: 3px;
     cursor: pointer;
   }
-  .seq-cell.is-beat { background: rgba(47, 58, 99, 0.11); }
-  .seq-cell.is-bar { background: rgba(47, 58, 99, 0.10); }
-  .seq-cell:hover { border-color: rgba(47, 58, 99, 0.45); }
-  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(47, 58, 99, 0.70); }
+  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
+  .seq-cell.is-bar  { background: rgba(255, 255, 255, 0.13); }
+  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.42); }
+  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.8); }
 
   .seq-ruler { margin-bottom: 6px; height: 12px; }
   .seq-tick {
@@ -384,11 +369,11 @@
     font-size: 9px;
     line-height: 12px;
     text-align: center;
-    color: var(--dim);
+    color: #7f889f;
     border-radius: 2px;
   }
-  .seq-tick.is-beat { background: rgba(47, 58, 99, 0.07); }
-  .seq-tick.is-bar { background: rgba(47, 58, 99, 0.10); color: var(--ink); }
+  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
+  .seq-tick.is-bar { background: rgba(255, 255, 255, 0.13); color: #e8ebf5; }
 
   @media (max-width: 720px) {
     .seq-head { width: 108px; }
@@ -413,11 +398,11 @@
     align-items: center;
     gap: 10px;
     padding: 13px 22px;
-    background: rgba(255, 255, 255, 0.92);
+    background: rgba(16, 19, 32, 0.92);
     border: 1px solid rgba(47, 58, 99, 0.14);
     border-radius: 999px;
     box-shadow: 0 14px 36px -12px rgba(47, 58, 99, 0.30);
-    color: var(--ink);
+    color: #e8ebf5;
     font-size: 14.5px;
     font-weight: 550;
     letter-spacing: 0.005em;
@@ -438,15 +423,15 @@
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 6px;
-    background: rgba(47, 58, 99, 0.12);
-    border: 1px solid rgba(47, 58, 99, 0.16);
+    background: rgba(255, 255, 255, 0.13);
+    border: 1px solid rgba(255, 255, 255, 0.20);
   }
 
   /*
     One slow pulse on the dot, and nothing else on this element animates. The
     prompt has to be noticed without competing with a scene that is already
-    full of moving light — a pulsing dot is the smallest thing that reads as
-    "waiting for you".
+    full of moving light(a pulsing dot is the smallest thing that reads as
+    "waiting for you").
   */
   #prompt i {
     width: 8px;
@@ -472,7 +457,7 @@
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.08em;
-    color: rgba(47, 58, 99, 0.55);
+    color: rgba(255, 255, 255, 0.5);
     pointer-events: none;
     white-space: pre;
     z-index: 5;
@@ -482,31 +467,6 @@
     #overlay, #start, #prompt { transition: none; }
     #prompt i { animation: none; }
   }
-
-  /* ---------------------------------------------------------------------
-     THEME LOCK
-
-     Everything below restates the panel colours explicitly rather than
-     relying on the rules above, and it is the last thing in the stylesheet so
-     it wins on cascade order regardless of what precedes it.
-
-     The reason it exists: the palette has now been swapped three times, and
-     each swap was done by editing colour literals scattered through half a
-     dozen rules. That works until one of them is missed — which is what left
-     the sequencer panel and the control panel white on a near-black stage,
-     the single most visible thing in the frame and the only part of the
-     interface that is not generated from palette.js.
-
-     Two panels, two problems, and only one of them was mine to miss:
-
-       #seq          styled here, and some of its rules kept a light value
-       .lil-gui      never styled at all, so it used its own default theme
-
-     lil-gui exposes its whole appearance as CSS custom properties, which is
-     the supported way to reskin it — reaching into its internal class names
-     would break on any version bump, and the library is vendored, so a bump
-     is a file copy somebody makes without thinking about CSS.
-     --------------------------------------------------------------------- */
 
   .lil-gui {
     --background-color: #171a28;
@@ -525,77 +485,6 @@
     --widget-height: 20px;
   }
 
-  #seq {
-    background: rgba(16, 19, 32, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    color: #e8ebf5;
-  }
-  .seq-bar { border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
-
-  .seq-btn {
-    color: #e8ebf5;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.11);
-  }
-  .seq-btn:hover { background: rgba(255, 255, 255, 0.14); }
-  .seq-rec.is-active {
-    background: rgba(255, 95, 82, 0.24);
-    border-color: rgba(255, 95, 82, 0.62);
-    color: #ffb4ad;
-  }
-
-  .seq-state { color: #9aa3ba; }
-  .seq-state.is-play { color: #6ff0d8; }
-  .seq-state.is-rec { color: #ff8078; }
-  .seq-state.is-countin { color: #ffb257; }
-  .seq-hint { color: #7f889f; }
-
-  .seq-field { color: #9aa3ba; }
-  .seq-field select {
-    color: #e8ebf5;
-    background: #232a3c;
-    border: 1px solid rgba(255, 255, 255, 0.11);
-  }
-  /* The option list is drawn by the OS and does not inherit, so it is set
-     explicitly or the dropdown opens white on every platform. */
-  .seq-field select option { background: #232a3c; color: #e8ebf5; }
-
-  .seq-head { color: #9aa3ba; }
-  .seq-dot { background: rgba(255, 255, 255, 0.16); }
-  .seq-dot.is-filled { background: #6ff0d8; box-shadow: 0 0 6px rgba(111, 240, 216, 0.7); }
-
-  .seq-mini {
-    color: #9aa3ba;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.10);
-  }
-  .seq-mini:hover { color: #e8ebf5; background: rgba(255, 255, 255, 0.13); }
-  .seq-arm.is-armed { color: #fff; background: #e2483c; border-color: #ff7b70; }
-
-  .seq-cell {
-    background: rgba(255, 255, 255, 0.055);
-    border: 1px solid transparent;
-    color: rgba(0, 0, 0, 0.7);
-  }
-  .seq-cell.is-beat { background: rgba(255, 255, 255, 0.085); }
-  .seq-cell.is-bar  { background: rgba(255, 255, 255, 0.13); }
-  .seq-cell:hover { border-color: rgba(255, 255, 255, 0.42); }
-  .seq-cell.is-now { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.8); }
-
-  .seq-tick { color: #7f889f; }
-  .seq-tick.is-beat { background: rgba(255, 255, 255, 0.06); }
-  .seq-tick.is-bar  { background: rgba(255, 255, 255, 0.13); color: #e8ebf5; }
-
-  #hover { background: rgba(16, 19, 32, 0.94); color: #e8ebf5; }
-  #hover span { color: #9aa3ba; }
-
-  #prompt { background: rgba(16, 19, 32, 0.92); color: #e8ebf5; }
-  #prompt kbd {
-    background: rgba(255, 255, 255, 0.13);
-    border: 1px solid rgba(255, 255, 255, 0.20);
-  }
-
-  #status { color: rgba(255, 255, 255, 0.5); }
 </style>
 </head>
 <body>
@@ -604,9 +493,9 @@
 
   <div id="overlay">
     <div class="card">
-      <div class="swatches"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="circles"><i></i><i></i><i></i><i></i><i></i></div>
       <h1 class="title">Drum Rig</h1>
-      <p class="subtitle">A 16-pad sequencer in a tri-fold slab.<br>Otto is on sticks.</p>
+      <p class="subtitle">A 16-pad sequencer in a tri-fold slab.<br>Rob8 is on sticks.</p>
       <button id="start" type="button">Power on</button>
       <p class="caption">Audio starts on your first click — browsers keep it muted until then.</p>
       <p class="legend">Interactive Graphics · Sapienza</p>
@@ -621,6 +510,7 @@
   <div id="hover"></div>
   <div id="status"></div>
 
+  <!-- single point of attach of the js pipeline -->
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
