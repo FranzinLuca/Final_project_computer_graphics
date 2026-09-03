@@ -283,6 +283,8 @@ export function loadPreset(audio, name, { withBpm = true } = {}) {
     return false;
   }
 
+  audio.snapshot()
+
   // The loop length has to move with the pattern, or a 16-step preset loaded
   // while the transport is set to four bars would play once and leave three
   // bars of silence behind it. The preset knows its own length; the engine is

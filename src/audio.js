@@ -1,32 +1,20 @@
 /**
- * audio.js — context, transport, scheduler, layers, recording.
- *
- * This module must never import from rig.js, hierarchy.js or anything that
- * touches Three.js. It imports the event bus (which is dependency-free
- * infrastructure) and the pad bank, nothing else. It can be driven entirely
- * from the browser console with no visuals present.
- *
- * Signal path:
- *
- *   scheduled hit -> layer[i].output --\
- *                                       >-- master -> drive -> space -> tone
- *   live hit --------------------------/                                  |
- *                                                                  destination
- *
- * Live hits bypass the layers deliberately: pressing a pad should always be
- * audible, even if the layer you are recording into is muted.
- *
- * The filter sits after the master gain so that phase 5's analyser, which will
- * tap masterFilter's output, sees exactly what reaches the speakers — close
- * the filter and the lights should dim with the sound.
- */
+  audio.js — context, transport, scheduler, layers, recording.
+  This module imports the event bus (which is dependency-free
+  infrastructure) and the pad bank
+ 
+  Signal path:
+    scheduled hit -> layer[i].output --\
+                                        >-- master -> drive -> space -> tone -> destination
+    live hit --------------------------/
+*/
 
 import { bus } from './events.js';
 import { PADS, PAD_BY_ID } from './pads.js';
 
-// ---------------------------------------------------------------------------
+// ----------------------
 // Context and master bus
-// ---------------------------------------------------------------------------
+// ----------------------
 
 /** @type {AudioContext | null} */
 let ctx = null;
@@ -36,23 +24,14 @@ let master = null;
 let masterFilter = null;
 
 /**
- * The drive stage: a fixed waveshaper with a variable gain in front of it.
- *
- * This is the whole trick, and it is worth stating because the obvious
- * implementation is worse in a way that is not obvious. A WaveShaperNode's
- * curve is a static array — changing the amount of distortion by rebuilding
- * the curve means allocating and uploading a few thousand floats on every
- * frame the knob moves, and the discontinuity between the old curve and the
- * new one is audible as a tick.
- *
- * A saturator is a fixed non-linearity; how much you distort is how hard you
- * HIT it. So the curve is built once as a tanh and never touched, and the knob
- * drives `drivePre` — a plain gain that pushes the signal further up the
- * curve's shoulder. `driveMakeup` takes the level back out afterwards, so
- * turning the knob changes the character without changing the loudness, which
- * is the difference between a distortion control and a volume control that
- * happens to clip.
- */
+  Instead of a lookup table i use a fixed tanh shaped curve.
+  The signal come in and gets pre-amplified by some amount.
+  The more it gets preamplified the more the signal gets on the
+  extreme of the curve and get more distorted.
+  After there is a post amplifaction step so that i get only the
+  distortion effect without the signal getting louder
+*/
+
 /** @type {GainNode | null} */
 let drivePre = null;
 /** @type {WaveShaperNode | null} */
@@ -71,13 +50,13 @@ export function getMaster() { return master; }
 export function getMasterFilter() { return masterFilter; }
 
 /**
- * Create and unlock the AudioContext. Must be called from inside a user
- * gesture handler or the context stays suspended and the project is silent.
- */
+  Create and unlock the AudioContext. Must be called from inside a user
+  gesture handler or the context stays suspended and the project is silent.
+*/
 export async function initAudio() {
   if (!ctx) {
     const Ctor = window.AudioContext || window.webkitAudioContext;
-    ctx = new Ctor({ latencyHint: 'interactive' });
+    ctx = new Ctor({ latencyHint: 'interactive' }); // optimize for low latency due to live performance
 
     master = ctx.createGain();
     master.gain.value = 0.8;
@@ -87,41 +66,25 @@ export async function initAudio() {
     masterFilter.frequency.value = FILTER_MAX;
     masterFilter.Q.value = Q_MIN;
 
-    // --- drive ----------------------------------------------------------
+    // --- drive ---
     drivePre = ctx.createGain();
     drivePre.gain.value = 1;
 
     driveShaper = ctx.createWaveShaper();
     driveShaper.curve = saturationCurve();
     /**
-     * Oversampling is not optional on a waveshaper.
-     *
-     * A non-linearity generates harmonics above the input's own bandwidth, and
-     * anything above Nyquist folds back down as inharmonic aliasing — which on
-     * a drum kit lands as a metallic ring under every hit that gets worse the
-     * harder you drive. '4x' runs the shaper at four times the sample rate and
-     * filters before decimating, which pushes the fold-back point two octaves
-     * out of the way.
-     */
+      A non-linearity generates harmonics above the input's own bandwidth, and
+      anything above Nyquist folds back down as aliasing
+      '4x' runs the shaper at four times the sample rate and
+      filters before decimating, which pushes the fold-back point two octaves
+      out of the way.
+    */
     driveShaper.oversample = '4x';
 
     driveMakeup = ctx.createGain();
     driveMakeup.gain.value = 1;
 
-    // --- space ------------------------------------------------------------
-    //
-    // Two delay taps at incommensurate times with a shared feedback loop and a
-    // lowpass inside it. This is not a reverb and does not claim to be: a real
-    // reverb needs either a convolution (which needs an impulse response file,
-    // and the project has no audio assets) or a dozen-odd allpass and comb
-    // stages. What it is, is the thing those stages are made of — a damped
-    // recirculating delay — and two taps at 131 and 187 ms are far enough from
-    // any simple ratio that the repeats never line up into an audible pulse.
-    //
-    // The lowpass in the FEEDBACK path rather than after it is what makes it
-    // read as a room: each pass around the loop loses more top end, so the
-    // tail darkens as it decays, which is exactly what air and soft surfaces
-    // do to a sound and what a bare delay conspicuously fails to do.
+    // --- space ---
     spaceSend = ctx.createGain();
     spaceSend.gain.value = 0;
 
@@ -146,7 +109,7 @@ export async function initAudio() {
     feedback.connect(spaceSend);   // the recirculation
     damp.connect(spaceReturn);
 
-    // --- wiring -----------------------------------------------------------
+    // --- wiring ---
     master.connect(drivePre);
     drivePre.connect(driveShaper);
     driveShaper.connect(driveMakeup);
@@ -164,9 +127,9 @@ export async function initAudio() {
   return ctx;
 }
 
-// ---------------------------------------------------------------------------
+// ---------------
 // Master controls
-// ---------------------------------------------------------------------------
+// ---------------
 
 const FILTER_MIN = 140;    // Hz
 const FILTER_MAX = 18000;  // Hz
@@ -175,13 +138,8 @@ const Q_MIN = 0.7;         // flat, no audible peak
 const Q_MAX = 14;          // resonant but not self-oscillating
 
 /**
- * Master volume, 0..1.
- *
- * setTargetAtTime rather than assigning .value: an instantaneous jump in gain
- * is a step discontinuity in the waveform, which is audible as a click. The
- * third argument is a time constant, so the gain glides to the new value over
- * roughly 30ms — fast enough to feel immediate, slow enough to be silent.
- */
+  Set master volume over time to avoid clicking
+*/
 export function setMasterVolume(value) {
   if (!master) return;
   const v = Math.min(1, Math.max(0, value));
@@ -189,17 +147,12 @@ export function setMasterVolume(value) {
 }
 
 /**
- * Master lowpass cutoff, from a 0..1 knob position.
- *
- * The mapping is exponential, not linear. Pitch perception is logarithmic — the
- * musical distance from 140Hz to 280Hz is one octave, the same as 9kHz to
- * 18kHz — so a linear map would spend the bottom 1% of the knob's travel on
- * everything you can hear moving and the remaining 99% on almost nothing.
- * Interpolating in the exponent gives every part of the sweep equal musical
- * weight.
- *
- *   f(t) = min * (max/min)^t
- */
+  Master lowpass cutoff, from a 0..1 knob position.
+  pitch/frequency perception is logarithmic not linear
+  an octave from another is double the previous in hz
+
+  f(t) = min * (max/min)^t
+*/
 export function setMasterFilter(value) {
   if (!masterFilter) return;
   const t = Math.min(1, Math.max(0, value));
@@ -208,20 +161,12 @@ export function setMasterFilter(value) {
 }
 
 /**
- * Master resonance, from a 0..1 knob position.
- *
- * `Q` on a biquad lowpass is the height of the peak at the cutoff, and it is
- * exponential in perception exactly as frequency is: 0.7 to 1.4 is barely
- * anything, 7 to 14 is the difference between a filter and a whistle. Mapped
- * in the exponent for the same reason the cutoff is.
- *
- * Capped at 14 rather than at the 1000 the API allows, and that ceiling is a
- * safety limit rather than taste. A high-Q lowpass has enormous gain at the
- * cutoff — a resonant peak at Q = 40 adds over 30 dB — and with the filter
- * sitting on the master bus that is a clipped output and, on headphones, a
- * genuinely unpleasant one. The control cannot reach a setting that damages
- * the mix.
- */
+  Master resonance, from a 0..1 knob position.
+  `Q` is the height of the peak at the cutoff, and it is 
+  exponential in perception exactly as frequency
+
+  same formula as before
+*/
 export function setMasterResonance(value) {
   if (!masterFilter) return;
   const t = Math.min(1, Math.max(0, value));
@@ -230,16 +175,11 @@ export function setMasterResonance(value) {
 }
 
 /**
- * Drive, from a 0..1 knob position.
- *
- * Pre-gain rises to 12x, which is 21 dB into the shoulder of the tanh — well
- * past the point where the curve stops being a straight line and starts
- * rounding transients off. Makeup falls as the reciprocal of roughly the
- * compression that produces, so the knob is close to level-matched end to end:
- * at 0 it is clean, at 1 it is thick, and it is NOT simply louder, which is
- * the trap every naive distortion control falls into and the reason people
- * think distortion "sounds better" when it is only louder.
- */
+  Drive, from a 0..1 knob position.
+ 
+  Pre-gain rises to 12x, which is well past the point where the curve stops being a straight line 
+  at 0 it is clean, at 1 it is thick, and it is not simply louder
+*/
 export function setMasterDrive(value) {
   if (!drivePre) return;
   const t = Math.min(1, Math.max(0, value));
@@ -248,17 +188,12 @@ export function setMasterDrive(value) {
 }
 
 /**
- * Space, from a 0..1 knob position.
- *
- * A SEND level, not a wet/dry mix. The dry path is untouched, so turning this
- * up adds ambience rather than trading the direct sound away for it — which
- * matters on percussion more than on anything else, because the transient IS
- * the sound and a crossfade to wet destroys it.
- *
- * Squared, so the bottom half of the travel covers the range from "dry" to
- * "there is a room", which is where all the useful settings are. Linear here
- * would put every usable value in the first fifth of the knob.
- */
+  Space, from a 0..1 knob position.
+  A SEND level, not a wet/dry mix. The dry path is untouched, so turning this
+  up adds ambience rather than trading the direct sound away for it — which
+  matters on percussion more than on anything else, because the transient IS
+  the sound and a crossfade to wet destroys it.
+*/
 export function setMasterSpace(value) {
   if (!spaceSend) return;
   const t = Math.min(1, Math.max(0, value));
@@ -266,17 +201,10 @@ export function setMasterSpace(value) {
 }
 
 /**
- * The tanh saturation curve, built once.
- *
- * `tanh` rather than a hard clip: it is smooth everywhere, so its harmonic
- * series rolls off instead of extending forever, and it approaches its limit
- * asymptotically so nothing ever lands on a flat top. Odd-symmetric, which
- * means it generates only odd harmonics — the third and fifth — and that is
- * the sound people mean by "warm" rather than "buzzy".
- *
- * 2048 points is far more than needed for audio-rate interpolation and costs
- * 8 KB once.
- */
+  The tanh saturation curve.
+  2048 points is far more than needed for audio-rate interpolation and costs
+  8 KB once.
+*/
 function saturationCurve(points = 2048) {
   const curve = new Float32Array(points);
   for (let i = 0; i < points; i++) {
@@ -286,30 +214,15 @@ function saturationCurve(points = 2048) {
   return curve;
 }
 
-// ---------------------------------------------------------------------------
+// ---------
 // Transport
-// ---------------------------------------------------------------------------
-
+// ---------
 const LOOKAHEAD_MS = 25;          // how often the planner wakes up
 const SCHEDULE_AHEAD = 0.1;       // how far ahead it commits notes, in seconds
 
 /**
- * Pattern length, in sixteenths. Now variable, where it was a fixed 16.
- *
- * "I cannot make long recordings" was limitation 5 in the decisions log, filed
- * as "nothing in the maths assumes 16, but nothing exposes it either". This
- * exposes it. Every timing question in this file is answered from
- * `startTime + n * secondsPerStep()`, and the length only ever appears as the
- * modulus that wraps an absolute step into a pattern index — so lengthening
- * the loop genuinely is one variable, and the claim in that log entry gets
- * tested rather than asserted.
- *
- * Restricted to whole bars of 4/4 rather than any integer. A 23-step loop is
- * expressible and is not a bar, so a recording made against it could never be
- * combined with a preset or with another layer; keeping every layer a whole
- * number of bars is what lets four patterns of different lengths play together
- * and still line up at the top.
- */
+  Pattern length, in sixteenths.
+*/
 export const PATTERN_LENGTHS = [16, 32, 64];   // 1, 2 and 4 bars
 export const DEFAULT_PATTERN_LENGTH = 16;
 
@@ -324,49 +237,37 @@ let bpm = 100;
 let running = false;
 
 /**
- * Swing, 0..1, mapped to a delay on every odd sixteenth.
- *
- * The most musical of the six knobs and the one with the most to say at the
- * oral, because it is a change to the SCHEDULER rather than to the signal.
- *
- * Straight sixteenths are mathematically even and rhythmically dead: every
- * groove a human plays pushes the off-beats later, and the amount is what
- * separates one genre from another. So odd steps are delayed by a fraction of
- * a step:
- *
- *   time(n) = startTime + n * spb + (n odd ? swing * spb * 0.62 : 0)
- *
- * 0.62 rather than 1.0 as the ceiling, because at a full step of delay the odd
- * note lands exactly on the even one after it and the pattern collapses to
- * eighths. The classic MPC maximum is triplet feel, which is 2/3 — the odd
- * note two thirds of the way through the pair. A shade under that is the
- * whole useful range.
- *
- * TWO PROPERTIES WORTH CHECKING, both of which hold:
- *
- *   Monotonicity. The offset is non-negative and strictly under one step, so
- *   step n + 1 can never be scheduled before step n. The scheduler's `while`
- *   loop still walks forward in time and never has to sort.
- *
- *   Recording is unaffected. `quantizeToStep` measures against the STRAIGHT
- *   grid, deliberately. A recorded hit is stored on the beat it was aimed at,
- *   and swing is applied on the way out — so changing the swing after
- *   recording re-feels the existing pattern instead of gradually dragging it
- *   out of time, and turning swing back to zero restores exactly what was
- *   played. Baking the offset into the stored step would make the operation
- *   lossy and non-reversible.
- */
+  Swing, 0..1, mapped to a delay on every odd sixteenth.
+  The most musical of the six knobs it is a change to the scheduler rather than to the signal.
+
+  Straight sixteenths are mathematically even and rhythmically dead: every
+  groove a human plays pushes the off-beats later, and the amount is what
+  separates one genre from another. 
+  Odd steps are delayed by a fraction of a step:
+    time(n) = startTime + n * spb + (n odd ? swing * spb * 0.62 : 0)
+
+*/
 let swing = 0;
 
-/**
- * Audio-clock time of absolute step 0. Every step in the piece sits at
- * startTime + n * secondsPerStep(), and every timing question in this file is
- * answered from that one equation.
- */
-let startTime = 0;
+export function setSwing(value) {
+  swing = Math.min(1, Math.max(0, value));
+  bus.emit('transport:swing', { swing });
+}
 
-/** Next absolute step the scheduler has yet to commit. Monotonic, never wraps. */
-let absStep = 0;
+export function getSwing() { return swing; }
+
+/** How late absolute step `n` sounds, in seconds. Zero on the even steps. */
+function swingOffset(n, spb) {
+  return (n % 2 === 1) ? swing * spb * 0.62 : 0;
+}
+
+/**
+  Audio-clock time of absolute step 0. Every step in the piece sits at
+  startTime + n * secondsPerStep(), and every timing question in this file is
+  answered from that one equation.
+*/
+let startTime = 0;
+let absStep = 0; // absolute step
 
 /** @type {number | null} setInterval handle for the planner. */
 let timer = null;
@@ -379,13 +280,12 @@ export function getBpm() { return bpm; }
 export function isRunning() { return running; }
 
 /**
- * Change tempo without losing the beat.
- *
- * Naively assigning bpm would move every step, because step positions are
- * derived from startTime. Rebasing startTime so the next scheduled step keeps
- * its current audio time means the change takes effect going forward and
- * everything already committed still lands where it was promised.
- */
+  Change tempo without losing the beat.
+  You can naively assign bpm but would move every step when changed, because step positions are
+  derived from startTime. 
+  Rebasing startTime so the next scheduled step keeps its current audio time means the change takes effect going forward and
+  everything already committed still lands where it was promised.
+*/
 export function setBpm(next) {
   const clamped = Math.min(200, Math.max(40, next));
   if (running) {
@@ -396,18 +296,6 @@ export function setBpm(next) {
     bpm = clamped;
   }
   bus.emit('transport:bpm', { bpm });
-}
-
-export function setSwing(value) {
-  swing = Math.min(1, Math.max(0, value));
-  bus.emit('transport:swing', { swing });
-}
-
-export function getSwing() { return swing; }
-
-/** How late absolute step `n` sounds, in seconds. Zero on the even steps. */
-function swingOffset(n, spb) {
-  return (n % 2 === 1) ? swing * spb * 0.62 : 0;
 }
 
 export function start() {
@@ -425,11 +313,9 @@ export function stop() {
   clearInterval(timer);
   timer = null;
   pending.length = 0;
-
-  // Stopping the transport ends capture but does NOT disarm. The layer stays
+  // Stopping the transport ends capture but does not disarm. The layer stays
   // selected for recording, so pressing play again resumes into the same one
-  // rather than silently dropping the choice — which is what "I lost track of
-  // which layer I was recording into" felt like from the other side.
+  // rather than silently dropping the choice
   if (capturing) {
     capturing = false;
     bus.emit('record:stop', getRecordState());
@@ -440,28 +326,23 @@ export function stop() {
 
 export function toggle() { running ? stop() : start(); }
 
-// ---------------------------------------------------------------------------
+// -----------------------
 // The lookahead scheduler
-// ---------------------------------------------------------------------------
+// -----------------------
 
 /**
- * Runs every ~25ms on the main thread. It never plays anything itself — it
- * commits notes to the audio clock, which is immune to main-thread jitter.
- *
- * Because every step time is computed as startTime + n * secondsPerStep
- * rather than accumulated (nextTime += step), floating-point error cannot
- * build up over a long session.
- */
+  Runs every LOOKAHEAD_MS (25ms) on the main thread. It never plays anything itself it
+  commits notes to the audio clock.
+  Given that every step time is computed as startTime + n * secondsPerStep
+  rather than accumulated (nextTime += step), floating-point error cannot
+  build up over a long session.
+*/
 function planner() {
   if (!ctx || !running) return;
 
   const horizon = ctx.currentTime + SCHEDULE_AHEAD;
   const spb = secondsPerStep();
 
-  // The loop bound uses the STRAIGHT time, not the swung one. Bounding on the
-  // swung time would make the horizon breathe with the swing knob, and a
-  // horizon that shrinks when a control moves is a horizon that can skip a
-  // step at the moment it changes.
   while (startTime + absStep * spb < horizon) {
     const time = startTime + absStep * spb + swingOffset(absStep, spb);
     scheduleStep(absStep, time);
@@ -470,24 +351,16 @@ function planner() {
 }
 
 /**
- * Commit one absolute step to the audio clock.
- *
- * The step index is wrapped PER LAYER, against that layer's own pattern
- * length, rather than once against a global. That is what allows a two-bar
- * fill on layer 4 to run under a one-bar loop on layers 1 to 3 and come back
- * round together — each layer wraps on its own modulus and they realign at the
- * least common multiple, which for whole-bar lengths is always a whole number
- * of bars.
- *
- * The count-in is handled here rather than by gating `start()`, because the
- * count-in is not a different mode of the transport: it is the ordinary
- * transport with recording not yet capturing and a click on each beat. Nothing
- * about scheduling changes during it.
- */
+  Commit one absolute step to the audio clock.
+  The step index is wrapped PER LAYER, against that layer's own pattern
+  length, rather than once against a global.
+*/
 function scheduleStep(absoluteStep, time) {
   for (const layer of layers) {
     if (layer.effectiveGain === 0) continue;
     const pattern = layer.pattern;
+    // step get out for each layer differntly
+    // double module because the module keep the sign so avoid errors
     const step = ((absoluteStep % pattern.length) + pattern.length) % pattern.length;
     for (const hit of pattern.steps[step]) {
       playVoice(hit.padId, layer.output, time, hit.velocity);
@@ -510,20 +383,12 @@ function scheduleStep(absoluteStep, time) {
 }
 
 /**
- * Resize every layer's pattern.
- *
- * Growing pads with empty steps; shrinking truncates, and truncating is
- * DESTRUCTIVE — hits past the new end are gone. So a snapshot is taken first
- * and the operation is undoable, which is the same treatment every other
- * destructive operation in this file now gets. The alternative, refusing to
- * shrink a pattern that has content, trades a recoverable mistake for a
- * control that sometimes does nothing, and a control that sometimes does
- * nothing is worse.
- */
+  Resize every layer's pattern.
+*/
 export function setPatternLength(next) {
   if (!PATTERN_LENGTHS.includes(next) || next === patternLength) return;
 
-  snapshot();
+  snapshot(); // for the undo section
   patternLength = next;
 
   for (const layer of layers) {
@@ -540,15 +405,18 @@ export function setPatternLength(next) {
   bus.emit('layers:changed', { layers });
 }
 
-// ---------------------------------------------------------------------------
+// ----------------------
 // Deferred visual events
-//
-// The scheduler runs up to SCHEDULE_AHEAD seconds early. Emitting on the bus
-// at schedule time would flash the LEDs 100ms before the sound. Instead,
-// events go into a queue stamped with their audio time, and update() — called
-// once per rendered frame from main.js — releases them when the audio clock
-// catches up. Sound and light then land together.
-// ---------------------------------------------------------------------------
+// ----------------------
+
+
+/** 
+  The scheduler runs up to SCHEDULE_AHEAD seconds early. Emitting on the bus
+  at schedule time would flash the LEDs 100ms before the sound. Instead,
+  events go into a queue stamped with their audio time, and update() — called
+  once per rendered frame from main.js — releases them when the audio clock
+  catches up. Sound and light then land together.
+*/
 
 const pending = [];
 
@@ -561,19 +429,12 @@ export function update() {
   if (!ctx) return;
   const now = ctx.currentTime;
 
-  /**
-   * The count-in ending is a state change with no event of its own in the
-   * audio graph, so it is detected here — the same place scheduled visual
-   * events are released, and for the same reason. Both are "the audio clock
-   * has reached a moment the UI needs to know about", and both have to be
-   * observed on the render thread because the audio thread cannot call into
-   * JavaScript.
-   */
+  // detect count in ending to start recording
   if (armed !== null && running && !capturing && currentAbsoluteStep() >= captureFromStep) {
     capturing = true;
     bus.emit('record:start', getRecordState());
   }
-
+  // unroll pending events (also visual emit)
   while (pending.length && pending[0].time <= now) {
     const event = pending.shift();
     if (event.source === 'step') bus.emit('transport:step', event);
@@ -581,13 +442,16 @@ export function update() {
   }
 }
 
-// ---------------------------------------------------------------------------
+// ------------------
 // Voices and choking
-// ---------------------------------------------------------------------------
+// ------------------
 
 /** chokeGroup -> the output node of the voice currently ringing in it. */
 const choking = new Map();
 
+/**
+  The single function that produce sounds
+*/
 function playVoice(padId, dest, time, velocity) {
   const pad = PAD_BY_ID.get(padId);
   if (!pad) {
@@ -595,7 +459,7 @@ function playVoice(padId, dest, time, velocity) {
     return;
   }
 
-  // A closed hi-hat cuts off a ringing open one, as a real hi-hat does: both
+  // A closed hi-hat cuts off a ringing open one, both
   // sounds come from one pair of cymbals, so they cannot overlap.
   if (pad.chokeGroup) {
     const previous = choking.get(pad.chokeGroup);
@@ -606,6 +470,7 @@ function playVoice(padId, dest, time, velocity) {
       if (previous.gain.cancelAndHoldAtTime) {
         previous.gain.cancelAndHoldAtTime(time);
       } else {
+        // fall back because cancelandholdattime is a new function
         previous.gain.cancelScheduledValues(time);
         previous.gain.setValueAtTime(Math.max(previous.gain.value, 0.0001), time);
       }
@@ -618,27 +483,11 @@ function playVoice(padId, dest, time, velocity) {
 }
 
 /**
- * Play a pad now. `capture` decides whether the recorder hears it.
- *
- * THE TWO CALLERS WANT DIFFERENT THINGS, AND THE SPLIT IS THE BUG FIX.
- *
- * Striking a pad — by mouse, by key, by the mascot — is a PERFORMANCE, and a
- * performance is what an armed layer exists to capture. Clicking a cell in the
- * step grid is an EDIT: the note has already been written, at the step the
- * pointer chose, and the sound is played only so the writer can hear what they
- * just placed.
- *
- * Routing both through one function meant the edit was captured as well as
- * written, so every note drawn by hand while recording produced TWO notes: the
- * one at the clicked step, and a second at wherever the playhead happened to be
- * when the click landed — quantised onto the nearest sixteenth, which is why it
- * looked like the metronome was adding the note. Worse, the two are
- * indistinguishable afterwards: nothing in a pattern records how a note got
- * there, so the only fix available to the user was undo.
- *
- * An audition is not an input event. It gets a hearing and a flash, and the
- * recorder is not told about it.
- */
+  Play a pad now. `capture` decides whether the recorder hears it.
+  Striking a pad is a PERFORMANCE, and a performance is what an armed layer exists to capture. 
+  Clicking a cell in the step grid is an EDIT: the note has already been written, at the step the
+  pointer chose, and the sound is played only so the writer can hear what they just placed.
+*/
 function fire(padId, velocity, capture) {
   if (!ctx) return;
   const time = ctx.currentTime;
@@ -655,29 +504,26 @@ function fire(padId, velocity, capture) {
 }
 
 /**
- * Play a pad now, from a click or a key press.
- *
- * Always audible, and additionally written into the armed layer if recording.
- */
+  Play a pad now, from a click or a key press.
+  Always audible, and additionally written into the armed layer if recording.
+*/
 export function trigger(padId, velocity = 1.0) {
   fire(padId, velocity, true);
 }
 
 /**
- * Play a pad now WITHOUT the recorder hearing it.
- *
- * For anything that makes a sound as feedback on an EDIT rather than as a
- * performance — the step grid's audition on write, and anything that later
- * wants to preview a voice. It still emits `pad:hit`, so the cap still flashes
- * and Rob8 still swings: the sound is real, it simply is not an input.
- */
+ Play a pad now without the recorder hearing it.
+ For anything that makes a sound as feedback on an EDIT rather than as a
+ performance 
+ It still emits `pad:hit`, so the cap still flashes and Rob8 still swings: the sound is real, it simply is not an input.
+*/
 export function audition(padId, velocity = 1.0) {
   fire(padId, velocity, false);
 }
 
-// ---------------------------------------------------------------------------
+// ------
 // Layers
-// ---------------------------------------------------------------------------
+// ------
 
 export const LAYER_COUNT = 4;
 
@@ -712,12 +558,10 @@ function buildLayers() {
 }
 
 /**
- * Recompute every layer's output gain.
- *
- * Solo is exclusive-by-implication: if any layer is soloed, only soloed layers
- * are heard and mute is irrelevant. That is the convention on hardware and it
- * avoids the confusing state of a track being both soloed and muted.
- */
+ Recompute every layer's output gain.
+ Solo is exclusive-by-implication: if any layer is soloed, only soloed layers
+ are heard and mute is irrelevant.
+*/
 function applyGains() {
   const anySolo = layers.some((l) => l.solo);
   for (const layer of layers) {
@@ -754,40 +598,18 @@ export function loadPattern(index, pattern) {
   bus.emit('layers:changed', { layers });
 }
 
-/** Deep copy of all four patterns — the shape presets.js will store. */
+/** Deep copy of all four patterns — the shape presets.js will store. NEVER USED */
 export function exportPatterns() {
   return layers.map((l) => JSON.parse(JSON.stringify(l.pattern)));
 }
 
-// ---------------------------------------------------------------------------
+// ---------
 // Recording
-// ---------------------------------------------------------------------------
+// ---------
 
 /** @type {number | null} index of the layer being recorded into. */
 let armed = null;
 
-/**
- * The absolute step at which capture begins. Everything before it is count-in.
- *
- * THE FOUR RECORDING BUGS WERE ALL ONE BUG: recording had no interval and no
- * visible state. You armed a layer and hits started landing at some moment you
- * could not perceive, into a loop whose boundaries you could not see, and the
- * only way out was to press the arm control four more times. Every part of
- * that is fixed by giving the operation a beginning, an end and a readout.
- *
- * THE BEGINNING is a count-in. Arming from a stopped transport starts it and
- * gives you one full bar of clicks before anything is captured — the same
- * contract every drum machine and every DAW has, and the reason it is
- * universal is that a musician cannot enter on beat one of a loop they have
- * not heard the tempo of. Arming while already running captures immediately,
- * because in that case you HAVE heard it.
- *
- * THE END is explicit. `disarm()` is one call, bound to one toggle, and it
- * stops capture without stopping playback so you can hear what you just made.
- * The cycling arm control that required four presses to switch off is gone;
- * choosing WHICH layer and choosing WHETHER to record are two decisions and
- * they now have two controls.
- */
 let captureFromStep = 0;
 
 /** True once the count-in has elapsed and hits are actually being written. */
@@ -796,14 +618,10 @@ let capturing = false;
 export function isCapturing() { return capturing; }
 
 /**
- * Everything a UI needs to draw the recording state, in one object.
- *
- * Returned as a snapshot rather than exposed as live variables, so no consumer
- * can hold a reference to engine state and start writing to it. The bus
- * carries the transitions; this answers "what is true right now" for anything
- * that arrives late — a panel built after recording has already started, for
- * instance.
- */
+  Everything the UI needs to draw the recording state, in one object.
+  Returned as a snapshot rather than exposed as live variables, so no consumer
+  can hold a reference to engine state and start writing to it.
+*/
 export function getRecordState() {
   const step = currentAbsoluteStep();
   return {
@@ -826,11 +644,10 @@ function currentAbsoluteStep() {
 }
 
 /**
- * Arm a layer for recording.
- *
- * @param {number} index
- * @param {{ countIn?: boolean }} options
- */
+  Arm a layer for recording.
+  @param {number} index
+  @param {{ countIn?: boolean }} options
+*/
 export function arm(index, { countIn = true } = {}) {
   if (index === null) return disarm();
 
@@ -860,7 +677,7 @@ export function disarm() {
   bus.emit('record:stop', getRecordState());
 }
 
-/** One control, two states. This is what replaced the five-state cycle. */
+/** One control, two states*/
 export function toggleArm(index) {
   if (armed === index) disarm();
   else arm(index);
@@ -869,22 +686,20 @@ export function toggleArm(index) {
 export function getArmed() { return armed; }
 
 /**
- * A count-in click. Not a pad.
- *
- * Deliberately NOT `perc_click` from the kit: a count-in that uses one of the
- * sixteen voices is indistinguishable from the pattern it is counting into,
- * which defeats the purpose. This is a bare sine blip outside the kit
- * entirely, and it goes straight to the master rather than through a layer so
- * mute and solo cannot silence it.
- */
+  count-in click to time the musician recording
+*/
 function playClick(time, accent) {
   if (!ctx) return;
+  // oscillatore create acontinuos wave form
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
 
+  // sine is the purest waveform shape, create a plain "beep"
   osc.type = 'sine';
+  // give a 1,2,3,4 feel giving an accent to the sound
   osc.frequency.value = accent ? 1600 : 1050;
 
+  // click lifetime volume management
   gain.gain.setValueAtTime(0.0001, time);
   gain.gain.exponentialRampToValueAtTime(accent ? 0.42 : 0.24, time + 0.002);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.055);
@@ -895,23 +710,19 @@ function playClick(time, accent) {
   osc.stop(time + 0.07);
 }
 
-// ---------------------------------------------------------------------------
+// ----
 // Undo
-//
-// One level, and one level is the right amount here.
-//
-// Every destructive operation in this module now takes a snapshot first:
-// clearing a layer, loading a preset over the top of a recording, shrinking
-// the pattern. The specific accident this exists for is real and was reported:
-// pressing the pattern button to hear a preset silently replaced four layers
-// of recorded work, because loadPreset writes all four and had no idea one of
-// them had taken twenty minutes to play.
-//
-// The alternative to undo is to protect the layers — refusing to overwrite one
-// that has content. That is worse, because a control that sometimes does what
-// it says and sometimes does not is a control nobody can learn. Undo keeps the
-// operation predictable and makes the mistake cheap.
-// ---------------------------------------------------------------------------
+// ----
+
+/**
+  Classical undo operation, works only for more destructive operations like:
+  - changing the preset beat
+  - removing a full row
+  - etc.
+
+  To add the function to other part of the program just add audio.snapshot()
+  everything else is automatic
+*/
 
 /** @type {null | { patterns: object[], length: number }} */
 let history = null;
@@ -942,17 +753,12 @@ export function undo() {
 }
 
 /**
- * Toggle one pad at one step of one layer — the grid's editing primitive.
- *
- * Editing by hand and recording by playing produce identical data, because
- * both end up as `{ padId, velocity }` in the same array. That is the same
- * property the preset compiler was built to have, extended one step further:
- * a pattern in this project has three possible origins — authored, performed,
- * drawn — and nothing downstream can tell which it was.
- *
- * Returns whether the step is now on, so a caller can update one cell rather
- * than re-reading the whole pattern.
- */
+  Toggle one pad at one step of one layer
+  remove is alreay there
+  add if not there
+
+  TO BE REMOVED
+*/
 export function toggleStep(layerIndex, step, padId, velocity = 0.9) {
   const slot = slotAt(layerIndex, step);
   if (!slot) return false;
@@ -969,15 +775,8 @@ function slotAt(layerIndex, step) {
 }
 
 /**
- * Put a note in a cell. Idempotent.
- *
- * Adding a pad that is already on the step does nothing rather than stacking a
- * duplicate, which matters now that the grid uses left-click for ADD rather
- * than for toggle: with a toggle, a second click undoes the first and the user
- * learns that; with an add, a second click must simply be harmless. The same
- * one-hit-per-pad-per-step rule the recorder enforces (D29), applied to the
- * other way of writing a note.
- */
+  Put a note in a cell
+*/
 export function addStep(layerIndex, step, padId, velocity = 0.9) {
   const slot = slotAt(layerIndex, step);
   if (!slot) return false;
@@ -989,16 +788,9 @@ export function addStep(layerIndex, step, padId, velocity = 0.9) {
 }
 
 /**
- * Take a note out of a cell.
- *
- * With no `padId`, removes the LAST note added rather than clearing the cell.
- * That is the behaviour right-click wants: a step can legitimately hold three
- * voices, and a click that wipes all of them makes the two survivors
- * collateral damage of an attempt to remove one. Repeated clicks empty the
- * cell one note at a time, which is undoable by eye.
- *
- * @returns {boolean} whether anything was removed
- */
+  Take a note out of a cell.
+  @returns {boolean} whether anything was removed
+*/
 export function removeStep(layerIndex, step, padId = null) {
   const slot = slotAt(layerIndex, step);
   if (!slot || slot.length === 0) return false;
@@ -1015,15 +807,12 @@ export function removeStep(layerIndex, step, padId = null) {
 }
 
 /**
- * Snap an audio-clock time to the nearest step of the loop.
- *
- * Round rather than floor: flooring drags every hit backwards, so a note
- * played 10ms early would land a whole step late. Rounding snaps to whichever
- * step is nearest, which is what a player intends.
- *
- * The modulo is written out because JavaScript's % keeps the sign of the left
- * operand, so a negative raw value would produce a negative index.
- */
+  Snap an audio-clock time to the nearest step of the loop.
+  This is the function that convert real world hit into step for the loop
+  Round rather than floor: flooring drags every hit backwards
+  
+  Same modulo tricks made for sign purpouse
+*/
 export function quantizeToStep(when) {
   const raw = (when - startTime) / secondsPerStep();
   const rounded = Math.round(raw);
@@ -1042,9 +831,11 @@ function recordHit(padId, velocity, when) {
   bus.emit('record:hit', { padId, step, velocity, layer: armed });
 }
 
-// ---------------------------------------------------------------------------
+// -----------------
 // Console interface
-// ---------------------------------------------------------------------------
+// -----------------
+
+// API for debug
 
 export const audio = {
   initAudio, start, stop, toggle, trigger, audition, update,

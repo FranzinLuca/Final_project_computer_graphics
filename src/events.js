@@ -1,16 +1,10 @@
 /**
- * events.js — a minimal publish/subscribe bus.
- *
- * This is the piece that keeps audio.js and rig.js from ever importing each
- * other. The scheduler emits `pad:hit` and does not know or care whether
- * anything is listening; the LED flash, the light pulse and the VU meter each
- * subscribe independently.
- *
- * Events used so far:
- *   'started'  { ctx }              audio unlocked, scene is live
- *   'frame'    { dt, t }            once per rendered frame
- *   'pad:hit'  { padId, time, vel } (phase 1)
- */
+  events.js — a minimal publish/subscribe bus.
+
+  This is the piece that keeps modules from ever importing each
+  other. The scheduler emits e.g. `pad:hit` and does not know or care whether
+  anything is listening
+*/
 
 function createBus() {
   /** @type {Map<string, Set<Function>>} */
