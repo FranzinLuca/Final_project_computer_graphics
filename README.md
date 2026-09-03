@@ -6,13 +6,9 @@ stage lighting reactive to the audio spectrum and a beat-synced robot mascot.
 
 **Live build:** https://franzinluca.github.io/Final_project_computer_graphics/
 
+(Live build offline)
+
 Course: Interactive Graphics, Prof. Marco Schaerf — DIAG, Sapienza University of Rome.
-
-## Team
-
-| Name | Matricola |
-|---|---|
-| | |
 
 ## Running locally
 
@@ -95,36 +91,6 @@ index.html          boot gate, import map, canvas, sequencer/GUI panel markup
   ui.js              DOM overlay wiring (tooltips, diagnostics readout)
 /docs                DECISIONS.md (architecture log) and written report
 ```
-
-## Grading pillars
-
-- **Hierarchical model with structure-driven animation** — the tri-fold rig
-  (`rig.js` + `hierarchy.js`): a parent slab with child wing nodes whose fold
-  angle drives their local transforms.
-- **Lights and textures of different types** — `lighting.js` (analyser-driven
-  fixtures) and `textures.js`/`palette.js` (procedurally generated maps and
-  luminance-balanced pad colors).
-- **User interaction** — pad triggering, step sequencer editing, kit
-  switching, free camera orbit, recording, via `interaction.js` and
-  `sequencer.js`.
-- **JavaScript-coded animations** — the unfold sequence, mascot arm motion,
-  and camera shots are all computed in code frame-by-frame; no imported
-  keyframe data anywhere in the project.
-
-## Progress
-
-- [x] Phase 0 — repo, vendored libraries, boot gate, live deployment
-- [x] Phase 1 — audio engine
-- [x] Phase 2 — rig geometry
-- [x] Phase 3 — interaction
-- [x] Phase 4 — hierarchical unfold
-- [x] Phase 5 — lighting
-- [x] Phase 6 — environment and textures
-- [x] Phase 7 — presets and camera
-- [x] Phase 8 — sound design
-- [x] Phase 9 — polish
-- [x] Phase 10 — document and deploy
-- [ ] Oral defense (Prof. Schaerf, exam session ~Sept 1)
 
 See `/docs/DECISIONS.md` for the full architectural reasoning log behind
 every design choice above.
