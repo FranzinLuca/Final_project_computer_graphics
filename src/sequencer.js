@@ -1,53 +1,10 @@
+
 /**
- * sequencer.js — the step grid.
- *
- * Four layer rows by up to sixty-four step cells, with a moving playhead, a
- * record arm per row, and click-to-edit on every cell.
- *
- *
- * WHY THIS EXISTS, AND WHY IT IS THE FIX FOR FOUR SEPARATE COMPLAINTS
- *
- * The recording workflow was reported as four bugs. They were one bug: the
- * sequencer's state was entirely invisible, so every question a user has while
- * recording had no answer on screen.
- *
- *   "I don't know when recording starts or stops"  -> no interval was shown
- *   "I can't turn recording off"                   -> arm was a five-state cycle
- *   "I don't know which layers have anything in"   -> patterns were never drawn
- *   "I lost my recording behind a preset"          -> no undo, and no view of it
- *
- * Three of those four are display problems and the fourth is made survivable
- * by being visible. So the engine got a real record interval and an undo (in
- * audio.js), and this module draws everything the engine knows.
- *
- *
- * WHY DOM AND NOT lil-gui, AND NOT A TEXTURE IN THE SCENE
- *
- * lil-gui is a good control panel and a bad grid: it lays out one labelled row
- * per control, so a 4x64 matrix would be 256 rows. The panel keeps the things
- * it is good at — sliders, toggles, folders — and the matrix moves here.
- *
- * Drawing it into the scene, on the instrument's own display, was the more
- * elegant-sounding option and is worse. A grid is a precision pointing target:
- * a cell would be a few pixels across, on a surface seen in perspective, at an
- * angle the user is free to orbit away from, and hit-testing it would mean
- * raycasting into UV space and inverting the projection. The browser already
- * does pointer hit-testing on rectangles perfectly. The scene is for the
- * instrument; the grid is a tool for operating it, and tools are allowed to be
- * flat.
- *
- *
- * WHAT THIS MODULE MAY AND MAY NOT DO
- *
- * It holds NO pattern state. Every cell is drawn from `audio.layers` and every
- * edit is a call into audio.js; the grid is a view, exactly as ui.js is. If
- * this file kept its own copy of the pattern, a hit recorded from a key press
- * would not appear until something happened to refresh it, and the two copies
- * would drift — which is the same failure the panel was designed to avoid.
- *
- * The one piece of state it does own is which pad is SELECTED for drawing, and
- * that is genuinely a property of the editor rather than of the music.
- */
+  sequencer.js — the step grid.
+  
+  Four layer rows by up to sixty-four step cells, with a moving playhead, a
+  record arm per row, and click-to-edit on every cell.
+*/
 
 import { bus } from './events.js';
 import { PADS, PAD_BY_ID } from './pads.js';
@@ -58,12 +15,12 @@ function hueCss(hue, lightness = 62) {
 }
 
 /**
- * @param {{ audio: any, container?: HTMLElement }} deps
+  @param {{ audio: any, container?: HTMLElement }} deps
  */
 export function initSequencer({ audio, container = document.body }) {
-  // -----------------------------------------------------------------------
+  // ---------
   // Structure
-  // -----------------------------------------------------------------------
+  // ---------
 
   const root = document.createElement('div');
   root.id = 'seq';
@@ -117,14 +74,9 @@ export function initSequencer({ audio, container = document.body }) {
   /** @type {Array<{ row: HTMLElement, cells: HTMLElement[], arm: HTMLElement, dot: HTMLElement }>} */
   let rows = [];
 
-  // -----------------------------------------------------------------------
+  // -------------------
   // Building the matrix
-  //
-  // Rebuilt only when the LENGTH changes, never on a content change. Cell
-  // contents are updated in place by `paint()` below, because rebuilding 256
-  // elements on every recorded hit would drop frames and would also destroy
-  // the element the pointer is currently over, cancelling the click.
-  // -----------------------------------------------------------------------
+  // -------------------
 
   function build() {
     const length = audio.getPatternLength();
@@ -200,15 +152,9 @@ export function initSequencer({ audio, container = document.body }) {
     paint();
   }
 
-  // -----------------------------------------------------------------------
+  // --------
   // Painting
-  //
-  // Coalesced into one animation frame. `layers:changed` fires on gain, mute,
-  // solo, clear, load and every edit — during a drag on a layer gain slider
-  // that is sixty events a second, and repainting 256 cells on each would be
-  // sixty pointless full passes. Setting a flag and repainting once before the
-  // next paint is the standard fix and costs one boolean.
-  // -----------------------------------------------------------------------
+  // --------
 
   let painting = false;
 
@@ -246,20 +192,11 @@ export function initSequencer({ audio, container = document.body }) {
         filled += 1;
         const pad = PAD_BY_ID.get(hit.padId);
         cell.classList.add('is-on');
-        // Velocity drives lightness, so a ghost note is visibly a ghost note.
-        // The pattern notation in presets.js encodes exactly three velocity
-        // levels and this is the same information drawn instead of typed.
         cell.style.background = hueCss(pad?.hue ?? 0, 34 + hit.velocity * 34);
-        // More than one pad on a step is common and legal — the grid shows the
-        // first and counts the rest, rather than pretending a step holds one
-        // note. Hovering names them all.
         cell.textContent = slot.length > 1 ? String(slot.length) : '';
         cell.title = slot.map((h) => PAD_BY_ID.get(h.padId)?.label ?? h.padId).join(', ');
       });
 
-      // The "which layers have anything in them" readout, and the reason the
-      // dot is on the row header rather than in a tooltip: it has to be
-      // answerable at a glance, without hovering four things.
       view.dot.classList.toggle('is-filled', filled > 0);
       view.head.classList.toggle('is-muted', layer.muted);
       view.head.classList.toggle('is-solo', layer.solo);
@@ -267,58 +204,22 @@ export function initSequencer({ audio, container = document.body }) {
     });
   }
 
-  // -----------------------------------------------------------------------
+  // -------
   // Editing
-  // -----------------------------------------------------------------------
+  // -------
 
-  /**
-   * LEFT ADDS, RIGHT REMOVES.
-   *
-   * It was a toggle, and a toggle is the wrong verb for a grid where a cell
-   * can hold more than one note. With one mouse button the only thing a click
-   * can express is "flip whatever is under the pointer", so putting a snare on
-   * a step that already has a kick, or taking the kick off and leaving the
-   * snare, needed the pad selector changed first and then a click that might
-   * do either thing depending on state you could not see.
-   *
-   * Two buttons is two verbs, and both become unconditional: left always
-   * writes the selected pad, right always takes something away. Neither
-   * depends on what is already there, which means neither can surprise you —
-   * the same property that makes the arm toggle better than the five-state
-   * cycle it replaced.
-   */
   function editCell(cell, remove) {
     const layer = Number(cell.dataset.layer);
     const step = Number(cell.dataset.step);
     selectedLayer = layer;
 
     if (remove) {
-      // Prefer the selected pad; fall back to the last note on the step, so a
-      // right-click always does something visible even when the selector is
-      // pointing at a pad that is not on this cell.
       if (!audio.removeStep(layer, step, selectedPad)) {
         audio.removeStep(layer, step);
       }
       return;
     }
 
-    /**
-     * Audition on write.
-     *
-     * Placing a note plays it, once, immediately. Drawing a pattern otherwise
-     * means writing in silence and finding out what it sounds like a bar
-     * later, which is the difference between composing and typing. It goes to
-     * the master bus, so it is heard even if the layer being drawn into is
-     * muted.
-     *
-     * `audition`, NOT `trigger`, and the difference is a bug that survived
-     * until someone drew a pattern with a layer armed. `trigger` is the live
-     * performance path and feeds the recorder, so writing a note by hand while
-     * recording wrote it twice: once at the clicked step, and once more at
-     * whichever step the playhead was passing — which reads as the metronome
-     * adding notes of its own. The grid is an editor; an editor's preview is
-     * not a performance.
-     */
     if (audio.addStep(layer, step, selectedPad)) audio.audition(selectedPad, 0.9);
   }
 
@@ -348,23 +249,10 @@ export function initSequencer({ audio, container = document.body }) {
     schedulePaint();
   });
 
-  // -----------------------------------------------------------------------
+  // -------------
   // Transport bar
-  // -----------------------------------------------------------------------
+  // -------------
 
-  /**
-   * The right button, and the browser menu it would otherwise open.
-   *
-   * `contextmenu` rather than `mousedown` with `button === 2`, because
-   * contextmenu is the event the platform actually fires for "the secondary
-   * action" — it is what a two-finger tap on a trackpad and a long-press on
-   * some touch devices produce, where a raw button check catches only a real
-   * right mouse button.
-   *
-   * `preventDefault` only over a cell. Suppressing the menu across the whole
-   * panel would take away copy, paste and inspect everywhere else in it for no
-   * reason.
-   */
   grid.addEventListener('contextmenu', (event) => {
     const cell = event.target.closest?.('.seq-cell');
     if (!cell) return;
@@ -386,14 +274,9 @@ export function initSequencer({ audio, container = document.body }) {
     audio.setPatternLength(Number(lengthSelect.value));
   });
 
-  // -----------------------------------------------------------------------
+  // --------------
   // The state line
-  //
-  // One sentence that always says what the machine is doing. It is the single
-  // highest-value element here: "I don't know when it starts" and "I don't
-  // know when to stop playing" are both answered by a line of text, and no
-  // amount of grid design substitutes for saying it.
-  // -----------------------------------------------------------------------
+  // --------------
 
   function describe() {
     const state = audio.getRecordState();
@@ -423,15 +306,13 @@ export function initSequencer({ audio, container = document.body }) {
     });
   }
 
-  // -----------------------------------------------------------------------
+  // -------------
   // Subscriptions
-  // -----------------------------------------------------------------------
+  // -------------
 
   let playhead = -1;
 
   bus.on('transport:step', ({ step }) => {
-    // One class off, one class on. Touching two elements per step rather than
-    // repainting the row is what keeps this free at 64 steps and 200 bpm.
     if (playhead >= 0) {
       for (const view of rows) view.cells[playhead]?.classList.remove('is-now');
     }
@@ -467,14 +348,8 @@ export function initSequencer({ audio, container = document.body }) {
   });
 
   /**
-   * The draw-pad follows what you play.
-   *
-   * Playing a pad and then clicking cells is the workflow this supports: you
-   * audition a sound on the instrument, then write it into the grid without
-   * having to find it again in a dropdown. Only LIVE hits change it —
-   * following the sequencer's own output would make the selection flicker
-   * through the whole kit every bar.
-   */
+    The draw-pad follows what you play.
+  */
   bus.on('pad:hit', ({ padId, source }) => {
     if (source !== 'live') return;
     selectedPad = padId;

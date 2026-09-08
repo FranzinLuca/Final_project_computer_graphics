@@ -1,35 +1,21 @@
+
 /**
- * textures.js — procedurally generated texture maps.
- *
- * Nothing here is downloaded or imported. Every map is computed at load time
- * from noise and a few filters, which means: no licensing questions for the
- * report, no binary assets in the repo, and every parameter is explainable.
- *
- * The requirement asks for textures "of different kinds". Each material family
- * gets a full set, and the art direction adds two more kinds on top:
- *
- *   map           base colour        sRGB      what colour the surface is
- *   normalMap     surface direction  linear    how light bends off it
- *   roughnessMap  microsurface       linear    how sharp the reflection is
- *   emissive      self-illumination  sRGB      the pad rims
- *   gradientMap   shading ramp       linear    how toon shading bands the light
- *   glyph         drawn label        sRGB      the key letter on each pad
- *
- * COLOUR SPACE IS NOT OPTIONAL. Base colour maps hold perceptual sRGB values
- * and must be tagged SRGBColorSpace so the renderer linearises them before
- * lighting. Normal, roughness and gradient maps hold raw numbers — a normal
- * map's RGB is a direction vector, not a colour — and must stay linear.
- * Tagging a normal map as sRGB silently bends every surface normal the wrong
- * way, and the result looks merely "a bit off" rather than obviously broken,
- * which is why it is such a common and long-lived bug.
- */
+  textures.js — procedurally generated texture maps.
+  
+    map           base colour        sRGB      what colour the surface is
+    normalMap     surface direction  linear    how light bends off it
+    roughnessMap  microsurface       linear    how sharp the reflection is
+    emissive      self-illumination  sRGB      the pad rims
+    gradientMap   shading ramp       linear    how toon shading bands the light
+    glyph         drawn label        sRGB      the key letter on each pad
+*/
 
 import * as THREE from 'three';
 import { cssHex } from './palette.js';
 
-// ---------------------------------------------------------------------------
+// -------------------------------
 // Small signal-processing helpers
-// ---------------------------------------------------------------------------
+// -------------------------------
 
 /** White noise height field in [0,1]. */
 function whiteNoise(size) {
@@ -39,13 +25,8 @@ function whiteNoise(size) {
 }
 
 /**
- * Separable box blur with wrap-around addressing.
- *
- * Wrapping rather than clamping at the edges is what makes the result tile
- * seamlessly — a clamped blur leaves a visible seam where the texture repeats.
- * Separable means two 1D passes instead of one 2D kernel: O(n) per pixel
- * instead of O(n²).
- */
+  Separable box blur with wrap-around addressing
+*/
 function boxBlur(src, size, radiusX, radiusY) {
   const tmp = new Float32Array(size * size);
   const out = new Float32Array(size * size);
@@ -87,29 +68,20 @@ function normalise(field) {
   return out;
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------
 // Height field -> normal map
-// ---------------------------------------------------------------------------
+// --------------------------
 
 /**
- * Convert a height field into a tangent-space normal map.
- *
- * At each texel, estimate the surface slope from its neighbours (a central
- * difference), then build the normal of the plane with that slope:
- *
- *   dx = h(x-1) - h(x+1)          slope across
- *   dy = h(y-1) - h(y+1)          slope down
- *   n  = normalise(dx*s, dy*s, 1) s = strength
- *
- * The +1 in Z is what keeps the normal pointing out of the surface: a flat
- * region gives (0,0,1), which is why unperturbed normal maps are that
- * characteristic lavender blue. Vectors run from -1..1 but texture channels
- * hold 0..1, so each component is packed as v*0.5 + 0.5 — and the shader
- * unpacks it with the inverse. That packing is the only reason a normal map
- * looks like a colour at all.
- *
- * Neighbour lookups wrap, for the same tiling reason as the blur.
- */
+  Convert a height field into a tangent-space normal map.
+ 
+  At each texel, estimate the surface slope from its neighbours (a central
+  difference), then build the normal of the plane with that slope:
+ 
+    dx = h(x-1) - h(x+1)          slope across
+    dy = h(y-1) - h(y+1)          slope down
+    n  = normalise(dx*s, dy*s, 1) s = strength
+*/
 export function normalMapFromHeight(height, size, strength = 2.0) {
   const data = new Uint8Array(size * size * 4);
 
@@ -196,29 +168,13 @@ function tintedTexture(field, size, darkHex, lightHex) {
   return texture;
 }
 
-// ---------------------------------------------------------------------------
+// -----------------
 // Material families
-//
-// THE COLOUR MAPS ARE MODULATION, NOT COLOUR.
-//
-// Three multiplies `material.map` by `material.color`. When the map ran from
-// near-black to mid-grey — which is what a photographic brushed-aluminium map
-// looks like — that product could only ever be dark, and every saturated
-// colour asked for came back muddy. The maps here span a narrow band just
-// below white, so the map supplies the *grain* and material.color supplies the
-// hue. The same field still drives all three maps, so a pit is simultaneously
-// darker, tilted and duller and still reads as one physical surface.
-// ---------------------------------------------------------------------------
+// -----------------
 
 /**
- * Soft moulded plastic — the case shell, lid, wings and panel.
- *
- * A wide blur leaves only very low-frequency variation, which is what an
- * injection-moulded surface actually looks like: not smooth, but not detailed
- * either. The normal strength is a third of what the old brushed-metal family
- * used, because visible micro-relief is precisely the thing that stops a
- * surface reading as a toy.
- */
+  Soft moulded plastic — the case shell, lid, wings and panel.
+*/
 export function mouldedMaps(size = 256) {
   const height = normalise(boxBlur(whiteNoise(size), size, 3, 3));
 
@@ -230,10 +186,8 @@ export function mouldedMaps(size = 256) {
 }
 
 /**
- * Moulded rubber, as on a drum pad: a fine isotropic stipple. Blur radius 1
- * in both directions keeps the grain tight — anything wider starts to read as
- * leather.
- */
+  Moulded rubber, as on a drum pad
+*/
 export function rubberMaps(size = 256) {
   const height = normalise(boxBlur(whiteNoise(size), size, 1, 1));
 
@@ -245,15 +199,8 @@ export function rubberMaps(size = 256) {
 }
 
 /**
- * Brushed aluminium, kept for the scissor mechanism.
- *
- * The whole character comes from anisotropy: blur white noise hard along one
- * axis and barely at all across it, and the streaks that survive read as
- * directional brush grooves. One machined family among the moulded ones is
- * what stops the rig looking like it was carved from a single block, and the
- * mechanism is the honest place for it — that is the part that would really be
- * metal.
- */
+  Brushed aluminium
+*/
 export function brushedMetalMaps(size = 512) {
   const height = normalise(boxBlur(whiteNoise(size), size, 14, 1));
 
@@ -265,28 +212,8 @@ export function brushedMetalMaps(size = 512) {
 }
 
 /**
- * Polished concrete — the floor.
- *
- * Two frequencies summed rather than one blurred field, which is the first
- * time this file has needed it. Concrete is genuinely two things at once: a
- * fine aggregate speckle a few millimetres across, and a slow blotchiness from
- * the pour and the sealer that runs over tens of centimetres. Blur white noise
- * once and you get one or the other; add a lightly blurred field to a heavily
- * blurred one and you get both, which is why a single-scale floor always reads
- * as sandpaper or as fog and never as concrete.
- *
- * The fine field is weighted lower than the coarse one. At the tiling density
- * this is used at, the fine detail is close to a texel per screen pixel and
- * would alias into shimmer if it carried the contrast.
- *
- * The roughness range is the important number here and it is wide: 0.34 to
- * 0.68. Sealed concrete is semi-gloss, so a spotlight raking across it leaves
- * a long specular streak — which is most of what makes stage lighting read as
- * stage lighting. Holding roughness constant would make that streak a clean
- * airbrushed shape; letting it vary breaks the streak into the mottled sheen a
- * real floor has. This is the one surface in the project where the roughness
- * map matters more than the normal map.
- */
+  Polished concrete
+*/
 export function concreteMaps(size = 512) {
   const fine = normalise(boxBlur(whiteNoise(size), size, 1, 1));
   const coarse = normalise(boxBlur(whiteNoise(size), size, 12, 12));
@@ -300,30 +227,14 @@ export function concreteMaps(size = 512) {
 
   return {
     map: tintedTexture(field, size, 0xbcbcc4, 0xffffff),
-    // Low strength on purpose. A floor seen at a grazing angle exaggerates
-    // every normal it has, so a value that looks correct from overhead looks
-    // like gravel from the camera height this scene uses.
     normalMap: normalMapFromHeight(field, size, 0.55),
     roughnessMap: grayscaleTexture(field, size, 0.34, 0.68),
   };
 }
 
 /**
- * Matte painted wall — the cyclorama.
- *
- * Almost nothing, and that is the specification rather than laziness. A cyc is
- * sprayed and rolled precisely so it has no readable detail: its whole job is
- * to be a surface with no landmarks, so that light landing on it is the only
- * thing the eye can see. Give it visible texture and it stops being a backdrop
- * and starts being a wall.
- *
- * So: one very wide blur, a colour map spanning barely two percent, a normal
- * map at a tenth of the strength any other family uses, and a narrow roughness
- * band up at the matte end. What survives is a faint roller mottle that keeps
- * the surface from banding into flat gradients — which is the actual failure
- * mode of a perfectly smooth wall under a coloured spot, and one that no
- * amount of tone mapping fixes.
- */
+  Matte painted wall
+*/
 export function paintedWallMaps(size = 256) {
   const field = normalise(boxBlur(whiteNoise(size), size, 18, 18));
 
@@ -344,33 +255,11 @@ export function configureMaps(maps, repeatX, repeatY, anisotropy = 1) {
   return maps;
 }
 
-// ---------------------------------------------------------------------------
+// -----------------
 // Toon shading ramp
-// ---------------------------------------------------------------------------
+// -----------------
 
-/**
- * The gradient map that turns smooth shading into cartoon bands.
- *
- * MeshToonMaterial does not shade by `dot(N, L)` directly. It uses that value,
- * remapped to 0..1, as the *texture coordinate* of this one-dimensional ramp,
- * and whatever the ramp holds at that coordinate becomes the light's
- * contribution. So the ramp is not a decoration on the lighting model — it is
- * the lighting model's transfer function, expressed as a texture. A smooth
- * ramp reproduces ordinary diffuse shading; a stepped one gives cel shading,
- * and the step positions are the entire look.
- *
- * NearestFilter is what makes the steps steps. With LinearFilter the hardware
- * interpolates between texels on the way out and the bands dissolve back into
- * the gradient they were built from.
- *
- * The steps here are deliberately uneven — 0.45, 0.62, 0.80, 1.0. Evenly
- * spaced bands put the biggest jump in the middle of the lit side of a
- * surface, where the eye is looking; loading the range towards the light keeps
- * the terminator soft and the shadow side open rather than crushed.
- */
 export function toonRamp(levels = [0.45, 0.62, 0.80, 1.0]) {
-  // Width is a multiple of 4, so the default unpack alignment of 4 bytes
-  // matches the row length exactly and no padding is needed.
   const width = Math.ceil(levels.length / 4) * 4;
   const data = new Uint8Array(width);
 
@@ -387,44 +276,10 @@ export function toonRamp(levels = [0.45, 0.62, 0.80, 1.0]) {
   return texture;
 }
 
-// ---------------------------------------------------------------------------
+// ----------------------
 // Environment and labels
-// ---------------------------------------------------------------------------
+// ----------------------
 
-/**
- * A radial falloff, written into the COLOUR channels and not the alpha.
- *
- * THE BUG THIS FIXES, because it is a good one and worth keeping in the log:
- * the contact shadows rendered as hard black SQUARES. The texture looked
- * correct — a soft disc fading to nothing — and the material was correct, and
- * the result was a rectangle.
- *
- * The cause is one line inside three's shader library. `alphaMap` is sampled
- * as:
- *
- *   diffuseColor.a *= texture2D( alphaMap, vAlphaMapUv ).g;
- *
- * It reads the GREEN channel. The first version of this function put the
- * falloff in the ALPHA channel and left RGB at a flat 255, which is the
- * obvious way to build a mask and is exactly wrong here: green was 1.0
- * everywhere, so the mask multiplied every fragment by one and the plane drew
- * as a full opaque quad.
- *
- * The failure mode is instructive. Nothing errors, nothing warns, and
- * inspecting the texture in isolation shows the shape you intended — the
- * information is present in the file and being read from the wrong place. This
- * is the same class of mistake as tagging a normal map sRGB (D42): a channel
- * convention silently disagreed with, producing output that is wrong in a way
- * that looks like a different bug entirely.
- *
- * So the falloff goes into R, G and B, alpha stays at 255, and the texture is
- * left at `NoColorSpace` — a mask is data, not a colour, and letting the
- * renderer gamma-decode it would bend the falloff curve into a different one.
- *
- * `exponent` shapes the ramp. 3.5 concentrates the darkening near the centre
- * and leaves a long thin tail, which is what contact occlusion does: dark
- * where the object nearly touches, vanishing well before its silhouette ends.
- */
 export function radialFalloffTexture(size = 64, exponent = 2.0) {
   const data = new Uint8Array(size * size * 4);
   const centre = (size - 1) / 2;
@@ -433,9 +288,6 @@ export function radialFalloffTexture(size = 64, exponent = 2.0) {
     for (let x = 0; x < size; x++) {
       const dx = (x - centre) / centre;
       const dy = (y - centre) / centre;
-      // Clamped so the disc reaches zero exactly at the texture edge; without
-      // the clamp the corners carry mask value and a "soft" shadow renders as
-      // a faintly visible square — a milder version of the same fault.
       const r = Math.min(1, Math.sqrt(dx * dx + dy * dy));
       const value = Math.round(Math.pow(1 - r, exponent) * 255);
 
@@ -449,29 +301,16 @@ export function radialFalloffTexture(size = 64, exponent = 2.0) {
   texture.colorSpace = THREE.NoColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  // The disc must not tile. Without this the bilinear filter at the edge wraps
-  // to the opposite side and the falloff never quite reaches zero, leaving a
-  // faint seam along all four borders of the quad.
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
   return texture;
 }
 
-// ---------------------------------------------------------------------------
+// ----------------------
 // Environment and labels
-// ---------------------------------------------------------------------------
+// ----------------------
 
-/**
- * A vertical two-stop gradient, used as the scene background.
- *
- * Two texels wide because the gradient does not vary horizontally and a 2x256
- * image is all the information there is; the sampler stretches it across the
- * viewport at no cost. Assigned to `scene.background` it is drawn as a
- * screen-space quad, so it does not move when the camera orbits — which is
- * what a photographic backdrop does, and part of why the result reads as a
- * product shot rather than as a skybox.
- */
 export function verticalGradientTexture(topHex, bottomHex, height = 256) {
   const canvas = document.createElement('canvas');
   canvas.width = 2;
@@ -489,26 +328,6 @@ export function verticalGradientTexture(topHex, bottomHex, height = 256) {
   return texture;
 }
 
-/**
- * An equirectangular studio environment, drawn rather than photographed.
- *
- * This is the map that makes metal look like metal. A metallic surface has no
- * diffuse response whatsoever — all it can do is reflect — so with no
- * environment it reflects an empty scene and renders black. The usual fix is
- * to load an HDRI, which means a binary asset and a licence; this is three
- * radial gradients on a canvas.
- *
- * The layout is a softbox rig: a large bright source high on one side, a
- * weaker cooler one opposite for fill, a narrow bright band along the horizon
- * to give edges something to catch, and a darker floor. Equirectangular means
- * x maps to azimuth over 2*pi and y to elevation over pi, so a circle drawn
- * near the top of the canvas becomes a broad soft source overhead — which is
- * exactly where a softbox goes.
- *
- * Handed to PMREMGenerator it becomes a prefiltered radiance map, so rough
- * materials read blurred mip levels and glossy ones read sharp ones, which is
- * what gives the roughness maps something to actually vary.
- */
 export function studioEnvironmentTexture(width = 512) {
   const height = width / 2;
 
@@ -543,24 +362,10 @@ export function studioEnvironmentTexture(width = 512) {
   return texture;
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 // Panel graphics: silkscreen, knob collars, and the display
-//
-// Three dynamic canvas textures, and a genuinely different KIND of texture
-// from the noise-derived maps above. Those are surface properties, computed
-// once and never touched again. These are drawn with the 2D canvas API, some
-// are redrawn while the program runs, and what they carry is INFORMATION
-// rather than material.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 
-/**
- * Text drawn white on transparent, at whatever aspect the caller needs.
- *
- * The generalisation of glyphTexture. Premultiplied alpha is off (the three
- * default), so the transparent margin must still be WHITE rather than black —
- * a black transparent margin bleeds dark fringes into the glyph edges when the
- * mipmap chain averages colour and alpha independently.
- */
 export function textTexture(text, {
   width = 256,
   height = 64,
@@ -582,9 +387,6 @@ export function textTexture(text, {
   g.textAlign = align;
   g.textBaseline = 'middle';
 
-  // Letter spacing by hand rather than via the `letterSpacing` canvas property,
-  // which is recent and unevenly supported. Tracked-out capitals are what
-  // makes a legend read as screen printing rather than as a caption.
   const spacing = size * tracking;
   const glyphs = [...text];
   const total = glyphs.reduce((sum, ch) => sum + g.measureText(ch).width + spacing, -spacing);
@@ -602,19 +404,9 @@ export function textTexture(text, {
 }
 
 /**
- * A knob collar: a 270-degree arc track, a fill showing the current value, and
- * the parameter name printed underneath.
- *
- * Returns a `draw` function rather than a finished texture, because the fill
- * changes whenever the knob is turned. It is redrawn ON CHANGE and not per
- * frame — six canvases at 128 square would be a real cost at 60 Hz and are
- * free at the rate a hand can turn a knob.
- *
- * 270 degrees because that is the travel of a real potentiometer and it is
- * already the sweep interaction.js applies to the knob mesh. The arc and the
- * cap turn through exactly the same angle, from the same value, so the printed
- * scale cannot disagree with the thing it is a scale for.
- */
+  A knob collar: a 270-degree arc track, a fill showing the current value, and
+  the parameter name printed underneath.
+*/
 export function knobCollarTexture(label, { size = 160, tint = '#ffb257' } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -625,9 +417,6 @@ export function knobCollarTexture(label, { size = 160, tint = '#ffb257' } = {}) 
   const radius = size * 0.375;
   const width = size * 0.055;
 
-  // Canvas angles run clockwise from +X. The sweep is centred on straight
-  // down-screen and opens 135 degrees each way, so the dead zone sits at the
-  // bottom where a real pot's stop is.
   const START = Math.PI * 0.75;
   const SWEEP = Math.PI * 1.5;
 
@@ -647,8 +436,6 @@ export function knobCollarTexture(label, { size = 160, tint = '#ffb257' } = {}) 
     g.arc(cx, cy, radius, START, START + SWEEP);
     g.stroke();
 
-    // Lit fill. Drawn even at zero as a short stub, so the collar never looks
-    // like a broken control — a scale with nothing on it reads as unpowered.
     const t = Math.min(1, Math.max(0, value));
     g.strokeStyle = tint;
     g.lineWidth = width;
@@ -670,20 +457,8 @@ export function knobCollarTexture(label, { size = 160, tint = '#ffb257' } = {}) 
 }
 
 /**
- * The panel display.
- *
- * Redrawn on transport events and on the step, which at 200 bpm is thirteen
- * times a second — well under a frame's budget for a 256x128 canvas, and
- * nowhere near the per-frame redraw that would make a canvas texture a bad
- * idea. `needsUpdate` triggers a GPU upload each time, which is the actual
- * cost being managed here.
- *
- * It earns its place at the oral more than it does in the render: it makes the
- * sequencer's internal state — the tempo, whether it is running, which
- * sixteenth is sounding — visible ON THE INSTRUMENT rather than only in a
- * debug panel, which is the difference between a model of a drum machine and
- * a drum machine.
- */
+  The panel display.
+*/
 export function displayTexture({ width = 256, height = 128 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -698,8 +473,6 @@ export function displayTexture({ width = 256, height = 128 } = {}) {
     g.fillStyle = '#07131a';
     g.fillRect(0, 0, width, height);
 
-    // Scanline tint, one pass. A perfectly flat panel reads as a sticker; a
-    // faint horizontal structure reads as a screen.
     g.fillStyle = 'rgba(255,255,255,0.025)';
     for (let y = 0; y < height; y += 4) g.fillRect(0, y, width, 1);
 
@@ -720,19 +493,12 @@ export function displayTexture({ width = 256, height = 128 } = {}) {
       g.fillText(`REC ${armed + 1}`, 190, 36);
     }
 
-    // The loaded kit, on the instrument itself. Four kits share one grid, one
-    // set of hues and one keyboard map, so without this the only thing that
-    // tells you which is loaded is the sound — which is fine while you are
-    // listening and useless in a screenshot.
     if (kit) {
       g.fillStyle = 'rgba(111,240,216,0.62)';
       g.font = '600 16px ui-sans-serif, system-ui, Arial, sans-serif';
       g.fillText(kit.toUpperCase(), 14, 88);
     }
 
-    // Sixteen step lamps, the current one filled. The row is the pattern, so
-    // the display is showing the same data the pad grid is flashing — one
-    // state, two views.
     const pitch = (width - 28) / 16;
     for (let i = 0; i < 16; i++) {
       const on = running && i === step;
@@ -748,16 +514,9 @@ export function displayTexture({ width = 256, height = 128 } = {}) {
 }
 
 /**
- * A single character drawn white on transparent, for the key letter printed on
- * each pad.
- *
- * Drawn rather than modelled: sixteen extruded glyphs would be sixteen
- * geometries and a font dependency, where this is one canvas each and no
- * dependency at all. Premultiplied alpha is off (the three default), so the
- * transparent margin must still be white rather than black — a black
- * transparent margin bleeds dark fringes into the glyph edge when the mipmap
- * chain averages colour and alpha independently.
- */
+  A single character drawn white on transparent, for the key letter printed on
+  each pad.
+*/
 export function glyphTexture(text, size = 128) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;

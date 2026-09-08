@@ -32,9 +32,9 @@ function createBus() {
     },
 
     /**
-     * Publish. A throwing listener is logged and skipped so one bad
-     * subscriber cannot kill the render loop.
-     */
+      Publish. A throwing listener is logged and skipped so one bad
+      subscriber cannot kill the render loop.
+    */
     emit(event, payload) {
       const set = listeners.get(event);
       if (!set) return;

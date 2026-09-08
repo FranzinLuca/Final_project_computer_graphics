@@ -222,6 +222,7 @@ const quality = initQuality({
     volumetrics.setSteps(tier.steps ?? 24);
   },
 });
+//quality.setTier(6)
 
 // ---------------------------
 // Wiring: intent -> behaviour
