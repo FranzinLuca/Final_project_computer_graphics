@@ -1,7 +1,6 @@
 # Drum Rig — Interactive Graphics Project
 
-A 16-pad procedural drum machine and step sequencer, staged on a tri-fold
-instrument rig that unfolds from a closed slab into a playable deck, with
+A 16-pad procedural drum machine and step sequencer with
 stage lighting reactive to the audio spectrum and a beat-synced robot mascot.
 
 **Live build:** https://franzinluca.github.io/Final_project_computer_graphics/
@@ -9,21 +8,6 @@ stage lighting reactive to the audio spectrum and a beat-synced robot mascot.
 (Live build offline)
 
 Course: Interactive Graphics, Prof. Marco Schaerf — DIAG, Sapienza University of Rome.
-
-## Running locally
-
-ES modules require a real HTTP server; opening `index.html` from the file
-system will fail with a CORS error.
-
-```bash
-python3 -m http.server 8000
-# then open http://localhost:8000
-```
-
-Click **Power on** before anything else — the page routes through a
-click-to-start overlay because browsers keep the `AudioContext` suspended
-until a user gesture, so the page is silent (and the rig stays folded) until
-you do.
 
 ## What it does
 
@@ -71,7 +55,7 @@ index.html          boot gate, import map, canvas, sequencer/GUI panel markup
 /src
   main.js            scene, renderer, camera, render loop, module wiring
   events.js          pub/sub event bus — keeps audio.js and rig.js decoupled
-  tweens.js           shared tween.js group, updated once per frame
+  tweens.js          shared tween.js group, updated once per frame
   rig.js             tri-fold slab instrument geometry
   hierarchy.js       fold solver — hinge math, staggered wing animation
   pads.js            16-voice synthesis bank
@@ -91,6 +75,3 @@ index.html          boot gate, import map, canvas, sequencer/GUI panel markup
   ui.js              DOM overlay wiring (tooltips, diagnostics readout)
 /docs                DECISIONS.md (architecture log) and written report
 ```
-
-See `/docs/DECISIONS.md` for the full architectural reasoning log behind
-every design choice above.
